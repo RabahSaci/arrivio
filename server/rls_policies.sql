@@ -95,6 +95,7 @@ USING (
     WHERE profiles.id = auth.uid() 
     AND profiles.role = 'ADMINISTRATEUR'
   )
+  OR user_id = auth.uid()
 );
 
 -- 8. Politiques pour la table 'referrals'
