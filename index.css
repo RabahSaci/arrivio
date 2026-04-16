@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-slds-brand: #0176d3;
+  --color-slds-brand-dark: #014486;
+  --color-slds-bg: #f3f3f3;
+  --color-slds-border: #dddbda;
+  --color-slds-text-primary: #181818;
+  --color-slds-text-secondary: #444444;
+  --color-slds-success: #2e844a;
+  --color-slds-error: #ea001e;
+}
+
+:root {
+  --slds-brand: #0176d3;
+  --slds-brand-dark: #014486;
+  --slds-bg: #f3f3f3;
+  --slds-border: #dddbda;
+  --slds-text-primary: #181818;
+  --slds-text-secondary: #444444;
+  --slds-success: #2e844a;
+  --slds-error: #ea001e;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 font-sans;
+}
+
+.slds-card {
+  @apply bg-white border border-slate-200 rounded-[32px] shadow-sm overflow-hidden;
+}
+
+.slds-input {
+  @apply w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-slds-brand transition-all text-sm font-bold text-slate-700 placeholder:text-slate-300;
+}
+
+.slds-input-compact {
+  @apply px-3 py-1.5 rounded-xl text-xs;
+}
+
+.slds-button {
+  @apply px-6 py-2.5 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed active:scale-95;
+}
+
+.slds-button-brand {
+  @apply bg-slds-brand text-white hover:bg-slds-brand-dark shadow-lg shadow-slds-brand/10;
+}
+
+.slds-button-neutral {
+  @apply bg-white border border-slate-200 text-slds-brand hover:bg-slate-50;
+}
+
+.slds-table {
+  @apply w-full text-left border-collapse;
+}
+
+.slds-table th {
+  @apply p-4 bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest;
+}
+
+.slds-table td {
+  @apply p-4 border-b border-slate-50;
+}
