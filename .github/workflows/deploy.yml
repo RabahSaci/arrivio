@@ -50,10 +50,17 @@ jobs:
           service: '${{ env.BACKEND_SERVICE }}'
           image: 'us-central1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.BACKEND_SERVICE }}:${{ github.sha }}'
           region: '${{ env.REGION }}'
-          flags: |
-            --port=8080 
-            --allow-unauthenticated
-            --set-env-vars="SUPABASE_URL=${{ secrets.SUPABASE_URL }},SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }},SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }},DB_HOST=${{ secrets.DB_HOST }},DB_PASSWORD=${{ secrets.DB_PASSWORD }},DB_USER=${{ secrets.DB_USER }},DB_NAME=${{ secrets.DB_NAME }},DB_PORT=${{ secrets.DB_PORT }},NODE_ENV=production"
+          env_vars: |
+            SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+            SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+            SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+            DB_HOST=${{ secrets.DB_HOST }}
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            DB_USER=${{ secrets.DB_USER }}
+            DB_NAME=${{ secrets.DB_NAME }}
+            DB_PORT=${{ secrets.DB_PORT }}
+            NODE_ENV=production
+          flags: '--port=8080 --allow-unauthenticated'
 
       # --- FRONTEND ---
       - name: Build and Push Frontend
