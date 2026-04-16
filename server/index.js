@@ -281,6 +281,22 @@ app.get('/api/app_settings', async (req, res) => {
   }
 });
 
+// Health check — check environment variables status
+app.get('/api/health', (req, res) => {
+  const status = {
+    uptime: process.uptime(),
+    timestamp: Date.now(),
+    env: {
+      NODE_ENV: process.env.NODE_ENV,
+      SUPABASE_URL: !!process.env.SUPABASE_URL,
+      SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      DB_HOST: !!process.env.DB_HOST,
+      PORT: process.env.PORT
+    }
+  };
+  res.json(status);
+});
+
 // Dedicated partners route — PUBLIC
 app.get('/api/partners', async (req, res) => {
   try {
