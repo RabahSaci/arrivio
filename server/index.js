@@ -141,6 +141,22 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
+// Validate required environment variables for production
+if (process.env.NODE_ENV === 'production') {
+  const REQUIRED_VARS = [
+    'SUPABASE_URL', 
+    'SUPABASE_SERVICE_ROLE_KEY', 
+    'SUPABASE_ANON_KEY',
+    'DB_HOST',
+    'DB_PASSWORD'
+  ];
+  REQUIRED_VARS.forEach(v => {
+    if (!process.env[v]) {
+      console.error(`ERROR: Missing required environment variable: ${v}`);
+    }
+  });
+}
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -910,8 +926,8 @@ app.delete('/api/:table/:id', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server is running on http://0.0.0.0:${PORT}`);
 });
 
 // 404 Handler for API
