@@ -618,23 +618,26 @@ const App: React.FC = () => {
 
     switch (activeTab) {
       case 'dashboard': return <Dashboard clients={clients} partners={partners} sessions={sessions} activeRole={activeRole} currentUserId={currentUserId} />;
-      case 'tasks': 
-        return (
-          <TaskDashboard 
-            tasks={tasks}
-            activeRole={activeRole}
-            currentUserId={currentUserId}
-            advisors={profiles.filter(u => u.role === UserRole.ADVISOR)}
-            onUpdateTask={handleUpdateTask}
-            onNavigateToEntity={(type, id) => {
-              if (type === 'SESSION') {
-                setActiveTab('sessions');
-              } else if (type === 'CLIENT') {
-                setActiveTab('clients');
-              }
-            }}
-          />
-        );
+      case 'tasks': return (
+        <TaskDashboard 
+          tasks={tasks} 
+          activeRole={activeRole} 
+          currentUserId={currentUserId}
+          advisors={profiles}
+          onUpdateTask={handleUpdateTask}
+          onNavigateToEntity={(type, id) => {
+            if (type === 'SESSION') {
+              setActiveTab('sessions');
+            } else if (type === 'CLIENT') {
+              const found = clients.find(c => c.id === id);
+              if (found) setSelectedClient(found);
+              setActiveTab('clients');
+            } else if (type === 'CONTRACT') {
+              setActiveTab('payments');
+            }
+          }}
+        />
+      );
       case 'clients': return (
         <ClientList 
           clients={clients}
@@ -678,6 +681,8 @@ const App: React.FC = () => {
             await apiService.update('contracts', c.id, {
               consultant_name: c.consultantName,
               total_sessions: c.totalSessions,
+              start_date: c.startDate,
+              end_date: c.endDate,
               status: c.status,
               amount: c.amount,
               service_type: c.serviceType

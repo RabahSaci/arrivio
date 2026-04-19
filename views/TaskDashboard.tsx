@@ -63,9 +63,9 @@ const TaskDashboard: React.FC<TaskDashboardProps> = ({
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         return (
-          task.title.toLowerCase().includes(query) || 
-          task.description?.toLowerCase().includes(query) ||
-          task.assignedToName.toLowerCase().includes(query)
+          (task.title || "").toLowerCase().includes(query) || 
+          (task.description || "").toLowerCase().includes(query) ||
+          (task.assignedToName || "").toLowerCase().includes(query)
         );
       }
       
