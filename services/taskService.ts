@@ -1,4 +1,4 @@
-import { Session, Client, Contract, Profile, WorkflowTask, TaskStatus, TaskPriority, TaskType, SessionCategory, SessionType } from '../types';
+import { Session, Client, Contract, Profile, WorkflowTask, TaskStatus, TaskPriority, TaskType, SessionCategory, SessionType, AttendanceStatus } from '../types';
 
 /**
  * Génère une signature unique pour identifier si une tâche a déjà été créée pour un objet.
@@ -109,6 +109,7 @@ export const refreshAutomatedTasks = (
           .filter(s => 
             s.type === SessionType.ESTABLISHMENT && 
             s.category === SessionCategory.INDIVIDUAL && 
+            s.individualStatus === AttendanceStatus.PRESENT &&
             s.participantIds?.includes(client.id) &&
             new Date(s.date) >= new Date('2025-04-01')
           )

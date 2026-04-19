@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Client, ReferralStatus, Partner, UserRole, Session, SessionType, SessionCategory } from '../types';
+import { Client, ReferralStatus, Partner, UserRole, Session, SessionType, SessionCategory, AttendanceStatus } from '../types';
 import { STATUS_COLORS } from '../constants';
 import Pagination from '../components/Pagination';
 import * as XLSX from 'xlsx';
@@ -232,6 +232,7 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
       const hasEstablishmentSession = clientSessions.some(s => 
         s.type === SessionType.ESTABLISHMENT && 
         s.category === SessionCategory.INDIVIDUAL &&
+        s.individualStatus === AttendanceStatus.PRESENT &&
         new Date(s.date) >= new Date('2025-04-01')
       );
       if (!hasEstablishmentSession) return false;
