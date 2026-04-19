@@ -65,32 +65,28 @@ export const refreshAutomatedTasks = (
     } else if (session.category === SessionCategory.INDIVIDUAL) {
       // 1.1 SCAN SESSIONS INDIVIDUELLES (Compte-rendu manquant)
       const sessionDate = new Date(session.date);
-      if (sessionDate < now) {
-        // Si les notes, actions ou besoins discutés sont vides
-        const isFollowUpEmpty = !session.notes && !session.actions && !session.discussedNeeds;
-        
-        if (isFollowUpEmpty) {
-          const signature = generateSignature('FILL_SESSION_FOLLOWUP', session.id);
-          const alreadyExists = existingTasks.some(t => t.processedSignature === signature);
+      // RÈGLE : Une tâche iEDEC pour CHAQUE séance individuelle où le client est présent
+      if (session.individualStatus === AttendanceStatus.PRESENT) {
+        const signature = generateSignature('FILL_SESSION_FOLLOWUP', session.id);
+        const alreadyExists = existingTasks.some(t => t.processedSignature === signature);
 
-          if (!alreadyExists) {
-            const adv = getAdvisorInfo(session.advisorId);
-            newTasks.push({
-              id: `task-indiv-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              type: 'FILL_SESSION_FOLLOWUP',
-              title: `Saisir sur iEDEC : ${session.title}`,
-              description: `La séance individuelle du ${session.date} est terminée. Merci de procéder à la saisie des informations sur iEDEC.`,
-              status: TaskStatus.PENDING,
-              priority: TaskPriority.HIGH,
-              assignedToId: adv.id,
-              assignedToName: adv.name,
-              relatedEntityId: session.id,
-              relatedEntityType: 'SESSION',
-              dueDate: todayStr,
-              createdAt: now.toISOString(),
-              processedSignature: signature
-            });
-          }
+        if (!alreadyExists) {
+          const adv = getAdvisorInfo(session.advisorId);
+          newTasks.push({
+            id: `task-indiv-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            type: 'FILL_SESSION_FOLLOWUP',
+            title: `Saisir sur iEDEC : ${session.title}`,
+            description: `La séance individuelle du ${session.date} (${session.type}) est terminée. Merci de procéder à la saisie sur iEDEC.`,
+            status: TaskStatus.PENDING,
+            priority: TaskPriority.HIGH,
+            assignedToId: adv.id,
+            assignedToName: adv.name,
+            relatedEntityId: session.id,
+            relatedEntityType: 'SESSION',
+            dueDate: todayStr,
+            createdAt: now.toISOString(),
+            processedSignature: signature
+          });
         }
       }
     }
