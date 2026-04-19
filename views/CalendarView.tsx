@@ -37,9 +37,10 @@ interface CalendarViewProps {
   onUpdateSession?: (session: Session) => void;
   onDeleteSession?: (sessionId: string) => void;
   allProfiles: Profile[];
+  onSelectClient?: (client: Client) => void;
 }
 
-const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners, contracts, activeRole, currentUserName, currentUserId, onAddSession, onUpdateSession, onDeleteSession, allProfiles }) => {
+const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners, contracts, activeRole, currentUserName, currentUserId, onAddSession, onUpdateSession, onDeleteSession, allProfiles, onSelectClient }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
@@ -453,6 +454,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
         currentUserName={currentUserName}
         currentUserId={currentUserId}
         onSave={handleSaveSession}
+        onSelectClient={onSelectClient}
       />
 
     </div>

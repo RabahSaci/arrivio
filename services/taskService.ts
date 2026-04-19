@@ -21,22 +21,22 @@ export const refreshAutomatedTasks = (
   const now = new Date();
   const todayStr = now.toLocaleDateString('en-CA'); // YYYY-MM-DD local
 
-  // Limite temporelle : On ne traite que les sessions des 30 derniers jours pour optimiser
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  thirtyDaysAgo.setHours(0, 0, 0, 0);
+  // Limite temporelle : On élargit un peu pour éviter les problèmes de fuseaux horaires
+  const lookbackDays = new Date();
+  lookbackDays.setDate(lookbackDays.getDate() - 60);
+  lookbackDays.setHours(0, 0, 0, 0);
 
-  const relevantSessions = allSessions.filter(s => new Date(s.date) >= thirtyDaysAgo);
+  const relevantSessions = allSessions.filter(s => new Date(s.date) >= lookbackDays);
 
   // Helper plus robuste pour identifier le conseiller responsable
-  const getAdvisorInfo = (advisorId: string | null | undefined, advisorName?: string | null) => {
+  const getAdvisorInfo = (advisorId: string | null | undefined, advisorName?: string | null, facilitatorName?: string | null) => {
     // 1. Priorité à l'ID technique
     if (advisorId) {
       const p = allProfiles.find(prof => prof.id === advisorId);
       if (p) return { id: p.id, name: `${p.firstName} ${p.lastName}` };
     }
 
-    // 2. Fallback par rapprochement de nom (si l'ID est absent ou invalide)
+    // 2. Fallback par rapprochement de nom du conseiller (advisor)
     if (advisorName) {
       const queryName = advisorName.toLowerCase().trim();
       const p = allProfiles.find(prof => {
@@ -46,7 +46,17 @@ export const refreshAutomatedTasks = (
       if (p) return { id: p.id, name: `${p.firstName} ${p.lastName}` };
     }
 
-    // 3. Fallback ultime : On assigne au premier administrateur trouvé au lieu de l'utilisateur courant
+    // 3. NOUVEAU Fallback par rapprochement de nom de l'animateur (facilitator)
+    if (facilitatorName) {
+      const queryName = facilitatorName.toLowerCase().trim();
+      const p = allProfiles.find(prof => {
+        const fullName = `${prof.firstName} ${prof.lastName}`.toLowerCase().trim();
+        return fullName === queryName || prof.email.toLowerCase() === queryName || prof.lastName.toLowerCase() === queryName;
+      });
+      if (p) return { id: p.id, name: `${p.firstName} ${p.lastName}` };
+    }
+
+    // 4. Fallback ultime : On assigne au premier administrateur trouvé
     const firstAdmin = allProfiles.find(p => p.role === 'ADMINISTRATEUR');
     if (firstAdmin) return { id: firstAdmin.id, name: `${firstAdmin.firstName} ${firstAdmin.lastName}` };
 
@@ -68,7 +78,7 @@ export const refreshAutomatedTasks = (
           if (!alreadyExists) {
             const timeDiff = now.getTime() - sessionDate.getTime();
             const hoursPassed = timeDiff / (1000 * 3600);
-            const adv = getAdvisorInfo(session.advisorId, session.advisorName);
+            const adv = getAdvisorInfo(session.advisorId, session.advisorName, session.facilitatorName);
             
             newTasks.push({
               id: `task-session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -97,7 +107,7 @@ export const refreshAutomatedTasks = (
         const alreadyExists = existingTasks.some(t => t.processedSignature === signature);
 
         if (!alreadyExists) {
-          const adv = getAdvisorInfo(session.advisorId, session.advisorName);
+          const adv = getAdvisorInfo(session.advisorId, session.advisorName, session.facilitatorName);
           newTasks.push({
             id: `task-indiv-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             type: 'FILL_SESSION_FOLLOWUP',
@@ -126,46 +136,44 @@ export const refreshAutomatedTasks = (
       const alreadyExists = existingTasks.some(t => t.processedSignature === signature);
 
       if (!alreadyExists) {
-        // A. Trouvons la séance "Établissement" la plus récente de ce client
-        const establishmentSessions = relevantSessions
-          .filter(s => 
-            s.type === SessionType.ESTABLISHMENT && 
-            (s.category === SessionCategory.INDIVIDUAL ? s.individualStatus === AttendanceStatus.PRESENT : s.participantIds?.includes(client.id))
-          )
+        // A. Trouvons LA séance la plus récente de ce client (quel que soit le type)
+        const clientSessions = relevantSessions
+          .filter(s => {
+            // Indispensable : La séance doit mentionner ce client (ID ou Code)
+            const isMatch = s.participantIds?.includes(client.id) || 
+                           (client.clientCode && s.participantIds?.includes(client.clientCode));
+            
+            if (!isMatch) return false;
+
+            // Si individuelle, on n'alerte que si le client était présent
+            if (s.category === SessionCategory.INDIVIDUAL) {
+              return s.individualStatus === AttendanceStatus.PRESENT;
+            }
+            
+            return true;
+          })
           .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-        const lastSession = establishmentSessions[0];
+        const lastSession = clientSessions[0];
 
-        // RÈGLE : Pas de tâche si aucune séance établissement trouvée
+        // RÈGLE : Pas de tâche si aucune séance trouvée dans les 30 derniers jours
         if (!lastSession) {
-          // console.debug(`[TASKS] Skip ${client.lastName}: Pas de séance Établissement trouvée.`);
           return;
         }
 
         console.info(`[TASKS] Triggering Referral Task for ${client.lastName} (Found session: ${lastSession.title})`);
 
         // B. Identifions le conseiller responsable
-        let assignedToId = '';
-        let assignedToName = '';
+        const advInfo = getAdvisorInfo(
+          lastSession.advisorId, 
+          lastSession.advisorName, 
+          lastSession.facilitatorName
+        );
 
-          const advInfo = getAdvisorInfo(lastSession.advisorId, lastSession.advisorName);
-          assignedToId = advInfo.id;
-          assignedToName = advInfo.name;
-        } else if (lastSession.advisorName) {
-          // Tentative de matching par nom (robuste)
-          const queryName = lastSession.advisorName.toLowerCase().trim();
-          const matchedProfile = allProfiles.find(p => {
-            const fullName = `${p.firstName} ${p.lastName}`.toLowerCase().trim();
-            return fullName === queryName || p.email.toLowerCase() === queryName || p.firstName.toLowerCase() === queryName;
-          });
+        let assignedToId = advInfo.id;
+        let assignedToName = advInfo.name;
 
-          if (matchedProfile) {
-            assignedToId = matchedProfile.id;
-            assignedToName = `${matchedProfile.firstName} ${matchedProfile.lastName}`;
-          }
-        }
-
-        // Fallback final si mapping échoue
+        // Fallback final si mapping échoue (rare avec le nouveau getAdvisorInfo)
         if (!assignedToId) {
           const fallback = getAdvisorInfo(client.referredById || (client as any).referred_by_id);
           assignedToId = fallback.id;

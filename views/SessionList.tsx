@@ -82,11 +82,14 @@ const SessionList: React.FC<SessionListProps> = ({
     return `${year}-${month}-${day}`;
   };
 
-  // Helper pour formater la date sans décalage de fuseau horaire
+  // Helper pour formater la date sans décalage de fuseau horaire (inclut le jour de la semaine complet)
   const formatDate = (dateString: string) => {
     if (!dateString) return '';
     const [year, month, day] = dateString.split('-').map(Number);
-    return new Date(year, month - 1, day).toLocaleDateString('fr-FR');
+    const date = new Date(year, month - 1, day);
+    const dayName = date.toLocaleDateString('fr-FR', { weekday: 'long' });
+    const capitalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+    return `${capitalizedDay} ${date.toLocaleDateString('fr-FR')}`;
   };
 
   const [activeCategory, setActiveCategory] = useState<SessionCategory>(SessionCategory.INDIVIDUAL);
@@ -136,9 +139,6 @@ const SessionList: React.FC<SessionListProps> = ({
       if (filterEndDate && session.date > filterEndDate) return false;
 
       // Filtrage métier par rôle
-      if (activeRole === UserRole.ADVISOR) {
-        return session.advisorName?.trim().toLowerCase() === currentUserName?.trim().toLowerCase();
-      }
       if (activeRole === UserRole.PARTNER && session.category === SessionCategory.GROUP) {
         return session.facilitatorName?.trim().toLowerCase() === currentUserName?.trim().toLowerCase();
       }
@@ -165,6 +165,27 @@ const SessionList: React.FC<SessionListProps> = ({
     setFilterType('ALL');
     setFilterFacilitator('ALL');
     setFilterAttendance('ALL');
+  };
+
+  const getTypeTextColor = () => {
+    return 'text-slate-700 font-black'; // Noir profond et gras pour un contraste maximal
+  };
+
+  const getAttendanceStats = (clientId: string) => {
+    const clientSessions = sessions.filter(s => s.participantIds?.includes(clientId));
+    if (clientSessions.length === 0) return null;
+    
+    const attendedSessions = clientSessions.filter(s => {
+      if (s.category === SessionCategory.INDIVIDUAL) {
+        return s.individualStatus === AttendanceStatus.PRESENT;
+      }
+      return !s.noShowIds?.includes(clientId);
+    });
+    
+    return {
+      rate: Math.round((attendedSessions.length / clientSessions.length) * 100),
+      total: clientSessions.length
+    };
   };
 
   const getSessionColor = (type: SessionType) => {
@@ -604,10 +625,26 @@ const SessionList: React.FC<SessionListProps> = ({
                               {client ? `${client.firstName?.[0] || '?'}${client.lastName?.[0] || '?'}` : '??'}
                             </div>
                             <div className="min-w-0">
-                              <p className="text-sm font-bold text-slds-brand leading-tight truncate">
+                              <p className="text-sm font-bold text-slds-brand leading-tight truncate flex items-center gap-2">
                                 {client.firstName} {client.lastName}
+                                {(() => {
+                                  const stats = getAttendanceStats(client.id);
+                                  if (!stats) return null;
+                                  return (
+                                    <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${
+                                      stats.rate >= 80 ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                                      stats.rate >= 50 ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                                      'bg-red-50 text-red-600 border border-red-100'
+                                    }`}>
+                                      {stats.rate}% • {stats.total} {stats.total > 1 ? 'séances' : 'séance'}
+                                    </span>
+                                  );
+                                })()}
                               </p>
-                              <p className="text-[10px] text-slds-text-secondary font-normal uppercase mt-0.5 truncate">
+                              <p className={`text-[10px] font-bold uppercase mt-0.5 truncate ${getTypeTextColor()}`}>
+                                {SESSION_TYPE_LABELS[session.type]}
+                              </p>
+                              <p className="text-[10px] text-slds-text-secondary font-normal uppercase truncate">
                                 {client.profession}
                               </p>
                             </div>
@@ -621,7 +658,7 @@ const SessionList: React.FC<SessionListProps> = ({
                               <p className="text-sm font-bold text-slds-brand leading-tight truncate">
                                 {session.title}
                               </p>
-                              <p className="text-[10px] text-indigo-600 font-bold uppercase mt-0.5 truncate">
+                              <p className={`text-[10px] font-bold uppercase mt-0.5 truncate ${getTypeTextColor()}`}>
                                 {SESSION_TYPE_LABELS[session.type]}
                               </p>
                             </div>
@@ -723,6 +760,22 @@ const SessionList: React.FC<SessionListProps> = ({
                     <p className="text-[10px] font-bold text-slds-text-secondary uppercase">Date & Heure</p>
                     <p className="text-xs font-bold text-slds-text-primary">{formatDate(viewingSession.date)} à {viewingSession.startTime}</p>
                     <p className="text-[9px] text-slds-text-secondary font-bold uppercase">{viewingSession.duration} minutes</p>
+                  </div>
+                  <div className="flex items-end pb-1">
+                    {viewingSession.category === SessionCategory.INDIVIDUAL && (
+                      <button 
+                        onClick={() => {
+                          const client = clients.find(c => viewingSession.participantIds?.includes(c.id));
+                          if (client) {
+                            onSelectClient(client);
+                            setViewingSession(null);
+                          }
+                        }}
+                        className="slds-button slds-button-neutral !px-4 !py-2 text-[10px] flex items-center gap-2 border-slds-brand/30 text-slds-brand hover:bg-blue-50 w-full justify-center shadow-sm"
+                      >
+                        <User size={14} /> Voir le dossier du client
+                      </button>
+                    )}
                   </div>
                </div>
 
@@ -838,6 +891,7 @@ const SessionList: React.FC<SessionListProps> = ({
         currentUserName={currentUserName}
         currentUserId={currentUserId}
         onSave={handleSaveSession}
+        onSelectClient={onSelectClient}
       />
     </div>
   );

@@ -48,6 +48,7 @@ interface LayoutProps {
   onClearAllNotifications: () => void;
   onNotificationSelect: (notif: AppNotification) => void;
   currentUserId: string;
+  currentUserName: string;
   tasks?: WorkflowTask[];
 }
 
@@ -62,6 +63,7 @@ const Layout: React.FC<LayoutProps> = ({
   onClearAllNotifications,
   onNotificationSelect,
   currentUserId,
+  currentUserName,
   tasks = []
 }) => {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
@@ -479,13 +481,17 @@ const Layout: React.FC<LayoutProps> = ({
 
              <div className="h-8 w-px bg-slate-100 mx-2" />
 
-             <div>
-                <h1 className="text-lg font-black text-slate-900 leading-none">
-                  {activeTab === 'messaging' ? 'Messagerie' : 
-                   activeTab === 'logs' ? 'Audit & Traçabilité' : 
-                   menuItems.find(i => i.id === activeTab)?.label}
-                </h1>
-                <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider mt-1.5">Espace {ROLE_LABELS[activeRole]}</p>
+             <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-3">
+                  <h1 className="text-lg font-black text-slate-900 leading-none">
+                    {activeTab === 'messaging' ? 'Messagerie' : 
+                     activeTab === 'logs' ? 'Audit & Traçabilité' : 
+                     menuItems.find(i => i.id === activeTab)?.label}
+                  </h1>
+                  <span className="text-slate-300 font-normal">|</span>
+                  <span className="text-slds-brand font-bold text-base">{currentUserName}</span>
+                </div>
+                <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Espace {ROLE_LABELS[activeRole]}</p>
              </div>
           </div>
         </header>

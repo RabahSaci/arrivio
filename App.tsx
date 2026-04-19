@@ -90,6 +90,19 @@ const App: React.FC = () => {
       clearInterval(checkInactivity);
     };
   }, [isLoggedIn, handleLogout]);
+  
+  // 3. AUTO-REFRESH (Silence Sync)
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    
+    const autoRefresh = setInterval(() => {
+      if (!isLoading) {
+        fetchData();
+      }
+    }, 60000); // Sync every 1 minute
+    
+    return () => clearInterval(autoRefresh);
+  }, [isLoggedIn, isLoading]);
 
   useEffect(() => {
     if (isLoggedIn && sessions.length > 0 && clients.length > 0) {
@@ -268,9 +281,9 @@ const App: React.FC = () => {
       ]);
 
       const safeGet = (result: PromiseSettledResult<any>, name: string) => {
-        if (result.status === 'fulfilled') return result.value;
+        if (result.status === 'fulfilled') return result.value || [];
         console.warn(`[fetchData] Failed to fetch '${name}':`, result.reason?.message);
-        return null;
+        return [];
       };
 
       const mentorsData   = safeGet(resMentors,   'mentors');
@@ -540,8 +553,10 @@ const App: React.FC = () => {
     if (isLoading && isLoggedIn && clients.length === 0) {
       return (
         <div className="h-full flex flex-col items-center justify-center py-40">
-          <Database size={48} className="text-blue-600 mb-4 animate-bounce" />
-          <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Récupération Supabase...</p>
+           <div className="loading-screen relative !bg-transparent">
+              <img src="/favicon.png" alt="Arrivio" className="loading-logo" />
+              <div className="loading-text">Chargement de vos données</div>
+           </div>
         </div>
       );
     }
@@ -824,6 +839,7 @@ const App: React.FC = () => {
       }}
       onLogout={handleLogout}
       currentUserId={currentUserId}
+      currentUserName={currentUserName}
       notifications={notifications}
       onClearNotification={(id) => setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n))}
       onClearAllNotifications={() => setNotifications(prev => prev.map(n => ({ ...n, isRead: true })))}

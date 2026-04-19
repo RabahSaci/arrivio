@@ -49,6 +49,7 @@ interface SessionModalProps {
   currentUserName: string;
   currentUserId?: string;
   onSave: (session: Session) => void;
+  onSelectClient?: (client: Client) => void;
 }
 
 const SessionModal: React.FC<SessionModalProps> = ({ 
@@ -63,7 +64,8 @@ const SessionModal: React.FC<SessionModalProps> = ({
   activeRole,
   currentUserName,
   currentUserId,
-  onSave
+  onSave,
+  onSelectClient
 }) => {
   const isEditing = !!session;
   const [category, setCategory] = useState<SessionCategory>(session?.category || initialCategory);
@@ -280,15 +282,29 @@ const SessionModal: React.FC<SessionModalProps> = ({
                           <p className="text-[9px] text-slds-brand font-bold uppercase">{selectedClient.profession || 'Inscrit'}</p>
                         </div>
                       </div>
-                      {!isEditing && (
+                      <div className="flex items-center gap-2">
                         <button 
                           type="button"
-                          onClick={() => setSelectedClient(null)}
-                          className="p-1 text-slds-text-secondary hover:text-slds-error hover:bg-white rounded transition-all"
+                          onClick={() => {
+                            if (selectedClient) {
+                              onSelectClient?.(selectedClient);
+                              onClose();
+                            }
+                          }}
+                          className="slds-button slds-button-neutral !px-3 !py-1 text-[10px] flex items-center gap-1.5 border-slds-brand/30 text-slds-brand hover:bg-blue-50"
                         >
-                          <X size={16} />
+                          <FileText size={12} /> Voir le dossier
                         </button>
-                      )}
+                        {!isEditing && (
+                          <button 
+                            type="button"
+                            onClick={() => setSelectedClient(null)}
+                            className="p-1 text-slds-text-secondary hover:text-slds-error hover:bg-white rounded transition-all"
+                          >
+                            <X size={16} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
