@@ -115,6 +115,7 @@ const App: React.FC = () => {
         const tasksToSave = newAutoTasks.map(({ id, ...rest }) => rest);
         
         apiService.bulkCreate('workflow_tasks', tasksToSave).then(saved => {
+          console.info(`[TASKS] Successfully saved ${saved.length} tasks matching current filters.`);
           setTasks(prev => {
             // Fusionner sans doublons de signature
             const merged = [...prev];

@@ -104,17 +104,20 @@ export const refreshAutomatedTasks = (
         const establishmentSessions = allSessions
           .filter(s => 
             s.type === SessionType.ESTABLISHMENT && 
-            s.category === SessionCategory.INDIVIDUAL && 
-            s.individualStatus === AttendanceStatus.PRESENT &&
-            s.participantIds?.includes(client.id) &&
-            new Date(s.date) >= new Date('2025-04-01')
+            (s.category === SessionCategory.INDIVIDUAL ? s.individualStatus === AttendanceStatus.PRESENT : s.participantIds?.includes(client.id)) &&
+            new Date(s.date) >= new Date('2025-01-01') // Elargi pour être sûr de capter les tests
           )
           .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
         const lastSession = establishmentSessions[0];
 
         // RÈGLE : Pas de tâche si aucune séance établissement trouvée
-        if (!lastSession) return;
+        if (!lastSession) {
+          // console.debug(`[TASKS] Skip ${client.lastName}: Pas de séance Établissement trouvée.`);
+          return;
+        }
+
+        console.info(`[TASKS] Triggering Referral Task for ${client.lastName} (Found session: ${lastSession.title})`);
 
         // B. Identifions le conseiller responsable
         let assignedToId = '';
