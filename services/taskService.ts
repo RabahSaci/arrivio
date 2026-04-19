@@ -19,7 +19,7 @@ export const refreshAutomatedTasks = (
 ): WorkflowTask[] => {
   const newTasks: WorkflowTask[] = [...existingTasks];
   const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
+  const todayStr = now.toLocaleDateString('en-CA'); // YYYY-MM-DD local
 
   // Helper to find advisor name
   const getAdvisorInfo = (id: string | null | undefined) => {

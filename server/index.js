@@ -927,10 +927,11 @@ function getReadClient(table, req) {
 
   // These tables are required by ALL roles to function (reference data, no PII risk)
   // RLS would block advisors/partners from reading them, breaking the UI
-  const alwaysAdminRead = ['partners', 'app_settings', 'contracts'];
+  // workflow_tasks and sessions are included here so automation/list sync works for the team
+  const alwaysAdminRead = ['partners', 'app_settings', 'contracts', 'sessions', 'workflow_tasks'];
 
   // These tables contain sensitive data — only admins/managers get global visibility
-  const adminOnlyRead = ['profiles', 'clients', 'sessions'];
+  const adminOnlyRead = ['profiles', 'clients'];
 
   if (alwaysAdminRead.includes(table)) {
     return supabaseAdmin;
@@ -1113,9 +1114,20 @@ app.post('/api/:table/bulk', async (req, res) => {
     const db = getAdminClient();
     console.info(`[BULK CREATE] Table: ${table}, Items: ${items.length}, User: ${req.user?.email}`);
     
-    const { data, error } = await db.from(table).insert(items).select();
-    if (error) throw error;
-    res.status(201).json(data);
+    let query = db.from(table);
+    
+    // Pour les tâches, on utilise upsert pour ignorer silencieusement les doublons de signature
+    if (table === 'workflow_tasks') {
+      const { data, error } = await query
+        .upsert(items, { onConflict: 'processed_signature', ignoreDuplicates: true })
+        .select();
+      if (error) throw error;
+      return res.status(201).json(data);
+    } else {
+      const { data, error } = await query.insert(items).select();
+      if (error) throw error;
+      return res.status(201).json(data);
+    }
   } catch (err) {
     console.error(`[BULK CREATE] Error in ${table}:`, err.message);
     res.status(500).json({ error: `Erreur lors de la création groupée dans ${table}.` });
