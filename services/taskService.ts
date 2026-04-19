@@ -24,14 +24,34 @@ export const refreshAutomatedTasks = (
   // Limite temporelle : On ne traite que les sessions des 30 derniers jours pour optimiser
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  thirtyDaysAgo.setHours(0, 0, 0, 0);
 
   const relevantSessions = allSessions.filter(s => new Date(s.date) >= thirtyDaysAgo);
 
-  // Helper to find advisor name
-  const getAdvisorInfo = (id: string | null | undefined) => {
-    if (!id) return { id: currentUserId, name: currentUserName };
-    const p = allProfiles.find(prof => prof.id === id);
-    return p ? { id: p.id, name: `${p.firstName} ${p.lastName}` } : { id: currentUserId, name: currentUserName };
+  // Helper plus robuste pour identifier le conseiller responsable
+  const getAdvisorInfo = (advisorId: string | null | undefined, advisorName?: string | null) => {
+    // 1. Priorité à l'ID technique
+    if (advisorId) {
+      const p = allProfiles.find(prof => prof.id === advisorId);
+      if (p) return { id: p.id, name: `${p.firstName} ${p.lastName}` };
+    }
+
+    // 2. Fallback par rapprochement de nom (si l'ID est absent ou invalide)
+    if (advisorName) {
+      const queryName = advisorName.toLowerCase().trim();
+      const p = allProfiles.find(prof => {
+        const fullName = `${prof.firstName} ${prof.lastName}`.toLowerCase().trim();
+        return fullName === queryName || prof.email.toLowerCase() === queryName || prof.lastName.toLowerCase() === queryName;
+      });
+      if (p) return { id: p.id, name: `${p.firstName} ${p.lastName}` };
+    }
+
+    // 3. Fallback ultime : On assigne au premier administrateur trouvé au lieu de l'utilisateur courant
+    const firstAdmin = allProfiles.find(p => p.role === 'ADMINISTRATEUR');
+    if (firstAdmin) return { id: firstAdmin.id, name: `${firstAdmin.firstName} ${firstAdmin.lastName}` };
+
+    // Si vraiment rien : on garde l'utilisateur courant (dernier secours)
+    return { id: currentUserId, name: currentUserName };
   };
 
   // 1. SCAN SESSIONS (Webinaires terminés sans participants)
@@ -48,7 +68,7 @@ export const refreshAutomatedTasks = (
           if (!alreadyExists) {
             const timeDiff = now.getTime() - sessionDate.getTime();
             const hoursPassed = timeDiff / (1000 * 3600);
-            const adv = getAdvisorInfo(session.advisorId);
+            const adv = getAdvisorInfo(session.advisorId, session.advisorName);
             
             newTasks.push({
               id: `task-session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -77,7 +97,7 @@ export const refreshAutomatedTasks = (
         const alreadyExists = existingTasks.some(t => t.processedSignature === signature);
 
         if (!alreadyExists) {
-          const adv = getAdvisorInfo(session.advisorId);
+          const adv = getAdvisorInfo(session.advisorId, session.advisorName);
           newTasks.push({
             id: `task-indiv-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             type: 'FILL_SESSION_FOLLOWUP',
@@ -128,8 +148,7 @@ export const refreshAutomatedTasks = (
         let assignedToId = '';
         let assignedToName = '';
 
-        if (lastSession.advisorId) {
-          const advInfo = getAdvisorInfo(lastSession.advisorId);
+          const advInfo = getAdvisorInfo(lastSession.advisorId, lastSession.advisorName);
           assignedToId = advInfo.id;
           assignedToName = advInfo.name;
         } else if (lastSession.advisorName) {

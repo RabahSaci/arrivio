@@ -333,20 +333,7 @@ const App: React.FC = () => {
       if (Array.isArray(sessionsData)) setSessions(sessionsData);
       if (Array.isArray(logsData)) setActivityLogs(logsData);
       if (Array.isArray(profilesData)) setProfiles(profilesData);
-      
-      if (Array.isArray(tasksData)) {
-        setTasks(tasksData.map((t: any) => ({
-          ...t,
-          assignedToId: t.assigned_to_id,
-          assignedToName: t.assigned_to_name,
-          processedSignature: t.processed_signature,
-          dueDate: t.due_date,
-          createdAt: t.created_at,
-          relatedEntityId: t.related_entity_id,
-          relatedEntityType: t.related_entity_type,
-          completedAt: t.completed_at
-        })));
-      }
+      if (Array.isArray(tasksData)) setTasks(tasksData);
 
     } catch (err: any) {
       console.error("Erreur sync:", err);
