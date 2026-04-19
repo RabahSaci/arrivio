@@ -594,8 +594,13 @@ const App: React.FC = () => {
               }); 
               
               setSelectedClient(u);
+              setClients(prev => prev.map(c => c.id === u.id ? u : c));
+              
               await logActivity('UPDATE', 'CLIENT', `Mise à jour du dossier ${u.firstName} ${u.lastName}.`);
               addNotification(NotificationType.SUCCESS, "Mise à jour réussie", `Le dossier de ${u.firstName} ${u.lastName} a été mis à jour.`);
+              
+              // Synchronisation arrière-plan pour les effets de bord (tâches, etc.)
+              fetchData();
             } catch (err: any) {
               console.error("Erreur mise à jour client:", err);
               addNotification(NotificationType.SYSTEM, "Erreur de mise à jour", err.message || "Une erreur est survenue lors de l'enregistrement.");
