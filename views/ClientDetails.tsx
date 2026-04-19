@@ -558,6 +558,18 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Section Chronologie */}
+                    <div className="bg-slate-50/50 border border-slate-200 rounded-3xl p-5 shadow-sm col-span-1 md:col-span-2">
+                      <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                        <Clock className="text-blue-500" size={14} /> Chronologie du Dossier
+                      </h4>
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <DataField label="Inscription CF" value={client.registrationDate} />
+                        <DataField label="Réf. vers Arrivio" value={client.inboundReferralDate} />
+                        <DataField label="Transfert Partenaire" value={client.referralDate} />
+                        <DataField label="Source" value={client.referralSource} />
+                      </div>
+                    </div>
                     {/* Section Identité */}
                     <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
                       <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest mb-4 flex items-center gap-2">

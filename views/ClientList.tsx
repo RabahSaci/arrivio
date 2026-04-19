@@ -192,7 +192,7 @@ const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPar
             marketing: findIdx(['consentement à recevoir des courriels', 'marketing consent', 'consentement marketing']),
             approved: findIdx(['est approuvé', 'is approved', 'compte approuvé']),
             profile: findIdx(['profil complété', 'profile completed', 'statut du profil']),
-            refDate: findIdx(['date de référencement', 'referral date', 'référé le'])
+            inboundRefDate: findIdx(['date de référencement', 'referral date', 'référé le'])
           };
 
           // Validation immédiate des colonnes vitales
@@ -282,7 +282,8 @@ const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPar
               marketingConsent: getValue(row, idx.marketing),
               isApproved: getValue(row, idx.approved),
               isProfileCompleted: getValue(row, idx.profile),
-              referralDate: formatDate(row[idx.refDate]),
+              inboundReferralDate: formatDate(row[idx.inboundRefDate]),
+              referralDate: null, // Initialement vide pour un nouveau client
               
               // Fallbacks compatibilité
               originCountry: getValue(row, idx.birthCountry) || getValue(row, idx.res) || 'Inconnu',

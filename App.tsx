@@ -351,6 +351,7 @@ const App: React.FC = () => {
       await apiService.create('clients', {
         client_code: newClient.clientCode,
         registration_date: newClient.registrationDate,
+        inbound_referral_date: newClient.inboundReferralDate,
         first_name: newClient.firstName,
         last_name: newClient.lastName,
         birth_date: newClient.birthDate,
@@ -582,6 +583,7 @@ const App: React.FC = () => {
                 assigned_partner_id: u.assignedPartnerId,
                 secondary_partner_ids: u.secondaryPartnerIds,
                 assigned_mentor_id: u.assignedMentorId,
+                inbound_referral_date: u.inboundReferralDate,
                 referral_date: u.referralDate,
                 referred_by_id: u.referredById,
                 acknowledged_at: u.acknowledgedAt,

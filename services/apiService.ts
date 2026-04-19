@@ -270,6 +270,7 @@ export const apiService = {
       marketing_consent: toBool(c.marketingConsent),
       is_approved: toBool(c.isApproved),
       is_profile_completed: toBool(c.isProfileCompleted),
+      inbound_referral_date: c.inboundReferralDate,
       referral_date: c.referralDate,
       questions: c.questions,
 

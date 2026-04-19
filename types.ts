@@ -140,7 +140,9 @@ export interface AuditLog {
 export interface Client {
   id: string;
   clientCode?: string;
-  registrationDate?: string;
+  registrationDate?: string; // Inscription chez Connexions Francophones
+  inboundReferralDate?: string; // Référencement entrant (CF -> Arrivio)
+  referralDate?: string; // Référencement sortant (Arrivio -> Partenaire)
   firstName: string;
   lastName: string;
   birthDate?: string;
