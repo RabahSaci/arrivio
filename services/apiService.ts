@@ -157,6 +157,19 @@ export const apiService = {
     return toCamel(resData);
   },
 
+  async bulkCreate(table: string, items: any[]) {
+    const headers = getHeaders();
+    const snakeItems = items.map(item => toSnake(item));
+    const response = await fetch(`${API_BASE_URL}/${table}/bulk`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(snakeItems),
+    });
+    const resData = await response.json();
+    if (!response.ok) throw new Error(resData.error || `Erreur lors de la création groupée dans ${table}`);
+    return toCamel(resData);
+  },
+
   async update(table: string, id: string | number, data: any) {
     const headers = getHeaders();
     const response = await fetch(`${API_BASE_URL}/${table}/${id}`, {

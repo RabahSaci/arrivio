@@ -92,24 +92,54 @@ const App: React.FC = () => {
   }, [isLoggedIn, handleLogout]);
 
   useEffect(() => {
-    if (isLoggedIn) {
-      setTasks(prevTasks => {
-        const purged = purgeOldTasks(prevTasks);
-        return refreshAutomatedTasks(
-          sessions,
-          clients,
-          contracts,
-          profiles,
-          purged,
-          currentUserName,
-          currentUserId
-        );
-      });
-    }
-  }, [sessions, clients, contracts, profiles, isLoggedIn, currentUserName, currentUserId]);
+    if (isLoggedIn && sessions.length > 0 && clients.length > 0) {
+      const purged = purgeOldTasks(tasks);
+      const updatedTasks = refreshAutomatedTasks(
+        sessions,
+        clients,
+        contracts,
+        profiles,
+        purged,
+        currentUserName,
+        currentUserId
+      );
 
-  const handleUpdateTask = (updatedTask: WorkflowTask) => {
-    setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
+      // Identifier les tâches qui ne sont pas encore en base de données (signature non présente)
+      const newAutoTasks = updatedTasks.filter(t => 
+        !tasks.some(dbTask => dbTask.processedSignature === t.processedSignature)
+      );
+
+      if (newAutoTasks.length > 0) {
+        console.info(`[TASKS] Sending ${newAutoTasks.length} new automated tasks to DB...`);
+        // Supprimer les IDs temporaires pour laisser la DB générer des UUIDs valides
+        const tasksToSave = newAutoTasks.map(({ id, ...rest }) => rest);
+        
+        apiService.bulkCreate('workflow_tasks', tasksToSave).then(saved => {
+          setTasks(prev => {
+            // Fusionner sans doublons de signature
+            const merged = [...prev];
+            saved.forEach((s: WorkflowTask) => {
+              if (!merged.find(m => m.id === s.id || m.processedSignature === s.processedSignature)) {
+                merged.push(s);
+              }
+            });
+            return merged;
+          });
+        }).catch(err => {
+          console.error("Erreur lors de la sauvegarde des tâches automatiques:", err);
+        });
+      }
+    }
+  }, [sessions, clients, contracts, profiles, isLoggedIn, currentUserName, currentUserId, tasks.length]);
+
+  const handleUpdateTask = async (updatedTask: WorkflowTask) => {
+    try {
+      await apiService.update('workflow_tasks', updatedTask.id, updatedTask);
+      setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
+    } catch (err) {
+      console.error("Erreur mise à jour tâche:", err);
+      addNotification(NotificationType.SYSTEM, "Erreur", "Impossible de mettre à jour la tâche en base de données.");
+    }
   };
 
   useEffect(() => {
@@ -223,7 +253,8 @@ const App: React.FC = () => {
         resPartners,
         resClients,
         resSessions,
-        resLogs
+        resLogs,
+        resTasks
       ] = await Promise.allSettled([
         apiService.fetchTable('mentors'),
         apiService.fetchTable('contracts'),
@@ -232,6 +263,7 @@ const App: React.FC = () => {
         apiService.fetchTable('clients'),
         apiService.fetchTable('sessions'),
         apiService.fetchTable('activity_logs'),
+        apiService.fetchTable('workflow_tasks')
       ]);
 
       const safeGet = (result: PromiseSettledResult<any>, name: string) => {
@@ -247,6 +279,7 @@ const App: React.FC = () => {
       const clientsData   = safeGet(resClients,   'clients');
       const sessionsData  = safeGet(resSessions,  'sessions');
       const logsData      = safeGet(resLogs,      'activity_logs');
+      const tasksData     = safeGet(resTasks,     'workflow_tasks');
 
       const normalizePartnerType = (raw: string): PartnerType => {
         const val = (raw || '').toUpperCase().trim();
@@ -299,6 +332,7 @@ const App: React.FC = () => {
       if (Array.isArray(sessionsData)) setSessions(sessionsData);
       if (Array.isArray(logsData)) setActivityLogs(logsData);
       if (Array.isArray(profilesData)) setProfiles(profilesData);
+      if (Array.isArray(tasksData)) setTasks(tasksData);
 
     } catch (err: any) {
       console.error("Erreur sync:", err);

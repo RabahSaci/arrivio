@@ -1100,6 +1100,28 @@ app.post('/api/:table', async (req, res) => {
   await handleCreate(table, req, res);
 });
 
+// Generic Bulk Create
+app.post('/api/:table/bulk', async (req, res) => {
+  const { table } = req.params;
+  const items = req.body;
+  
+  if (!Array.isArray(items)) {
+    return res.status(400).json({ error: "Un tableau d'entrées est requis." });
+  }
+
+  try {
+    const db = getAdminClient();
+    console.info(`[BULK CREATE] Table: ${table}, Items: ${items.length}, User: ${req.user?.email}`);
+    
+    const { data, error } = await db.from(table).insert(items).select();
+    if (error) throw error;
+    res.status(201).json(data);
+  } catch (err) {
+    console.error(`[BULK CREATE] Error in ${table}:`, err.message);
+    res.status(500).json({ error: `Erreur lors de la création groupée dans ${table}.` });
+  }
+});
+
 async function handleCreate(table, req, res) {
   let body = { ...req.body };
   if (body.user_id === "") body.user_id = null;
