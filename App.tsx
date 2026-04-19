@@ -770,7 +770,11 @@ const App: React.FC = () => {
   return (
     <Layout 
       activeRole={activeRole} onRoleChange={setActiveRole} 
-      activeTab={activeTab} setActiveTab={setActiveTab}
+      activeTab={activeTab} 
+      setActiveTab={(tab) => {
+        setActiveTab(tab);
+        setSelectedClient(null);
+      }}
       onLogout={handleLogout}
       currentUserId={currentUserId}
       notifications={notifications}
