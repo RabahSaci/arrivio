@@ -246,9 +246,18 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
       // 3. Filtrage par recherche
       if (searchTerm) {
         const query = searchTerm.toLowerCase();
+        const firstName = client.firstName?.toLowerCase() || '';
+        const lastName = client.lastName?.toLowerCase() || '';
+        const fullName = `${firstName} ${lastName}`;
+        const reversedFullName = `${lastName} ${firstName}`;
+        const email = client.email?.toLowerCase() || '';
+
         if (!(
-          client.firstName?.toLowerCase().includes(query) ||
-          client.lastName?.toLowerCase().includes(query) ||
+          firstName.includes(query) ||
+          lastName.includes(query) ||
+          fullName.includes(query) ||
+          reversedFullName.includes(query) ||
+          email.includes(query) ||
           client.clientCode?.toLowerCase().includes(query)
         )) return false;
       }
@@ -271,7 +280,15 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
     }).map(client => {
       const partner = partners.find(p => p.id === client.assignedPartnerId);
       const clientSessions = sessionsByClient.get(client.id) || [];
-      const lastAdvisor = clientSessions.length > 0 ? clientSessions[0].advisorName : "N/A";
+      
+      // Filtrer uniquement par établissement et trier par date chronologique
+      const establishmentSessions = clientSessions
+        .filter(s => s.type === SessionType.ESTABLISHMENT)
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      const firstEstablishmentAdvisor = establishmentSessions.length > 0 
+        ? establishmentSessions[0].advisorName 
+        : "N/A";
       
       // Recalcule la priorité
       let priority = getPriorityCategory(client.arrivalDateApprox || '');
@@ -285,7 +302,7 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
         ...client,
         partnerName: partner?.name || (client.assignedPartnerId ? 'Organisme inconnu' : 'En attente de référencement'),
         partnerCity: partner?.city || '',
-        advisorName: lastAdvisor || "N/A",
+        advisorName: firstEstablishmentAdvisor,
         priority: priority
       };
     }).filter(client => {

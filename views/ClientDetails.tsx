@@ -313,27 +313,26 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   }, [allSessions, client.id]);
 
   const stats = useMemo(() => {
-    let validCount = 0;
-    clientSessions.forEach(s => {
+    if (clientSessions.length === 0) return { rate: 100, total: 0 };
+    
+    const attendedSessions = clientSessions.filter(s => {
       if (s.category === SessionCategory.INDIVIDUAL) {
-        if (s.individualStatus === AttendanceStatus.PRESENT || s.individualStatus === AttendanceStatus.ABSENT) {
-          validCount++;
-        }
-      } else {
-        // Group sessions are usually valid if participant was expected
-        validCount++;
+        return s.individualStatus === AttendanceStatus.PRESENT;
       }
+      return !s.noShowIds?.includes(client.id);
     });
-    return { validCount };
-  }, [clientSessions]);
+    
+    const rate = Math.round((attendedSessions.length / clientSessions.length) * 100);
+    return { rate, total: clientSessions.length };
+  }, [clientSessions, client.id]);
 
-  const getReliabilityUI = (ratio: number) => {
-    if (ratio === 0) return { color: 'text-emerald-500', bg: 'bg-emerald-50', label: 'Excellente assiduité' };
-    if (ratio < 25) return { color: 'text-amber-500', bg: 'bg-amber-50', label: 'Assiduité correcte' };
+  const getReliabilityUI = (rate: number) => {
+    if (rate >= 90) return { color: 'text-emerald-500', bg: 'bg-emerald-50', label: 'Excellente assiduité' };
+    if (rate >= 75) return { color: 'text-amber-500', bg: 'bg-amber-50', label: 'Assiduité correcte' };
     return { color: 'text-red-500', bg: 'bg-red-50', label: 'Défaut d\'assiduité' };
   };
 
-  const rel = getReliabilityUI(client.noShowRatio || 0);
+  const rel = getReliabilityUI(stats.rate);
 
   const timelineIcons = {
     NOTE: <MessageSquare size={14} className="text-blue-500" />,
@@ -442,10 +441,10 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                 </div>
               </div>
               <div className={`px-4 py-2 rounded-xl border-2 font-black text-lg ${rel.color} ${rel.bg} border-current/20`}>
-                {100 - (client.noShowRatio || 0)}%
+                {stats.rate}%
               </div>
             </div>
-            <p className="text-[8px] text-slate-400 font-bold mt-4 uppercase tracking-tighter italic text-center">Calculé sur {stats.validCount} séance(s)</p>
+            <p className="text-[8px] text-slate-400 font-bold mt-4 uppercase tracking-tighter italic text-center">Calculé sur {stats.total} séance(s)</p>
           </div>
 
           {/* Colonne 2 : Données Administratives */}

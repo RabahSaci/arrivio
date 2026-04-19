@@ -656,6 +656,7 @@ const App: React.FC = () => {
       case 'clients': return (
         <ClientList 
           clients={clients}
+          sessions={sessions}
           activeRole={activeRole} 
           currentPartnerId={currentPartnerId} 
           currentUserId={currentUserId} 

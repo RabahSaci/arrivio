@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { Client, Mentor, Session, UserRole, Partner, ReferralStatus, ReferralStatus as StatusType } from '../types';
+import { Client, Mentor, Session, UserRole, Partner, ReferralStatus, ReferralStatus as StatusType, SessionCategory, AttendanceStatus } from '../types';
 import Pagination from '../components/Pagination';
 import { STATUS_COLORS } from '../constants';
 import ConfirmModal from '../components/ConfirmModal';
@@ -28,6 +28,7 @@ import {
 
 interface ClientListProps {
   clients: Client[];
+  sessions: Session[];
   activeRole: UserRole;
   currentPartnerId?: string;
   currentUserId?: string;
@@ -37,14 +38,42 @@ interface ClientListProps {
   onDeleteClient?: (clientId: string) => void;
 }
 
-const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPartnerId, currentUserId, onSelectClient, onAddClient, onBulkAddClients, onDeleteClient }) => {
+const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, currentPartnerId, currentUserId, onSelectClient, onAddClient, onBulkAddClients, onDeleteClient }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<ReferralStatus | 'ALL'>('ALL');
-  const [filterEmail, setFilterEmail] = useState('');
   const [filterCity, setFilterCity] = useState('ALL');
   const [filterCountry, setFilterCountry] = useState('ALL');
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
+
+  // OPTIMIZATION: Index sessions per client for lightning-fast attendance calculation
+  const sessionsByClient = useMemo(() => {
+    const map = new Map<string, Session[]>();
+    sessions.forEach(s => {
+      s.participantIds?.forEach(id => {
+        if (!map.has(id)) map.set(id, []);
+        map.get(id)!.push(s);
+      });
+    });
+    return map;
+  }, [sessions]);
+
+  const getAttendanceStats = (clientId: string) => {
+    const clientSessions = sessionsByClient.get(clientId) || [];
+    if (clientSessions.length === 0) return null;
+    
+    const attendedSessions = clientSessions.filter(s => {
+      if (s.category === SessionCategory.INDIVIDUAL) {
+        return s.individualStatus === AttendanceStatus.PRESENT;
+      }
+      return !s.noShowIds?.includes(clientId);
+    });
+    
+    return {
+      rate: Math.round((attendedSessions.length / clientSessions.length) * 100),
+      total: clientSessions.length
+    };
+  };
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
@@ -62,16 +91,24 @@ const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPar
       // Filtrage par texte (sur tous les champs texte)
       if (searchTerm) {
         const query = searchTerm.toLowerCase();
+        const firstName = client.firstName?.toLowerCase() || '';
+        const lastName = client.lastName?.toLowerCase() || '';
+        const fullName = `${firstName} ${lastName}`;
+        const reversedFullName = `${lastName} ${firstName}`;
+        const email = client.email?.toLowerCase() || '';
+        const code = client.clientCode?.toLowerCase() || '';
+
         if (!(
-          client.firstName?.toLowerCase().includes(query) ||
-          client.lastName?.toLowerCase().includes(query) ||
-          client.clientCode?.toLowerCase().includes(query) ||
-          client.email?.toLowerCase().includes(query)
+          firstName.includes(query) ||
+          lastName.includes(query) ||
+          fullName.includes(query) ||
+          reversedFullName.includes(query) ||
+          email.includes(query) ||
+          code.includes(query)
         )) return false;
       }
       
       if (filterStatus !== 'ALL' && client.status !== filterStatus) return false;
-      if (filterEmail && !client.email?.toLowerCase().includes(filterEmail.toLowerCase())) return false;
       if (filterCity !== 'ALL' && client.destinationCity !== filterCity) return false;
       if (filterCountry !== 'ALL' && client.originCountry !== filterCountry) return false;
       if (filterStartDate && (!client.registrationDate || client.registrationDate < filterStartDate)) return false;
@@ -83,7 +120,7 @@ const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPar
     }).sort((a, b) => {
       return new Date(b.registrationDate || 0).getTime() - new Date(a.registrationDate || 0).getTime();
     });
-  }, [clients, searchTerm, filterStatus, filterEmail, filterCity, filterCountry, filterStartDate, filterEndDate, activeRole, currentPartnerId]);
+  }, [clients, searchTerm, filterStatus, filterCity, filterCountry, filterStartDate, filterEndDate, activeRole, currentPartnerId]);
 
   const totalItems = filteredClients.length;
 
@@ -104,7 +141,6 @@ const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPar
   const resetFilters = () => {
     setSearchTerm('');
     setFilterStatus('ALL');
-    setFilterEmail('');
     setFilterCity('ALL');
     setFilterCountry('ALL');
     setFilterStartDate('');
@@ -362,20 +398,12 @@ const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPar
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slds-text-secondary" size={12} />
               <input 
                 type="text" 
-                placeholder="Rechercher..." 
+                placeholder="Rechercher par nom, prénom ou email..." 
                 className="slds-input slds-input-compact pl-10 text-[11px]" 
                 value={searchTerm} 
                 onChange={(e) => setSearchTerm(e.target.value)} 
               />
             </div>
-
-            <input 
-              type="text" 
-              placeholder="Email..." 
-              className="slds-input slds-input-compact w-32 text-[11px] h-8"
-              value={filterEmail}
-              onChange={(e) => setFilterEmail(e.target.value)} 
-            />
           </div>
 
           <div className="flex items-center gap-4">
@@ -456,7 +484,7 @@ const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPar
             {uniqueCountries.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
 
-          {(searchTerm || filterStatus !== 'ALL' || filterEmail || filterCity !== 'ALL' || filterCountry !== 'ALL' || filterStartDate || filterEndDate) && (
+          {(searchTerm || filterStatus !== 'ALL' || filterCity !== 'ALL' || filterCountry !== 'ALL' || filterStartDate || filterEndDate) && (
             <button 
               onClick={resetFilters}
               className="text-[9px] font-black text-slds-brand px-1 hover:underline uppercase"
@@ -523,11 +551,15 @@ const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPar
                         <div>
                           <div className="flex items-center gap-2">
                             <span>{client.firstName} {client.lastName}</span>
-                            {client.noShowRatio !== undefined && (
-                              <span className={`text-[10px] font-bold ${getReliabilityColor(client.noShowRatio)}`}>
-                                {100 - client.noShowRatio}%
-                              </span>
-                            )}
+                            {(() => {
+                              const stats = getAttendanceStats(client.id);
+                              if (!stats) return null;
+                              return (
+                                <span className={`text-[10px] font-bold ${getReliabilityColor(100 - stats.rate)}`}>
+                                  {stats.rate}%
+                                </span>
+                              );
+                            })()}
                             {isSecondary && (
                               <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-bold uppercase border border-purple-200">
                                 Secondaire

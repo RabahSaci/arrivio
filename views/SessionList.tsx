@@ -114,14 +114,48 @@ const SessionList: React.FC<SessionListProps> = ({
   const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
 
+  // OPTIMIZATION: Index clients by ID for lightning-fast lookup during search/render
+  const clientsById = useMemo(() => {
+    const map = new Map<string, Client>();
+    clients.forEach(c => map.set(c.id, c));
+    return map;
+  }, [clients]);
+
   const filteredSessions = useMemo(() => {
     return sessions.filter(session => {
       // Filtrage par catégorie
       if (activeCategory === SessionCategory.GROUP && session.category !== SessionCategory.GROUP) return false;
       if (activeCategory === SessionCategory.INDIVIDUAL && session.category !== SessionCategory.INDIVIDUAL) return false;
       
-      // Filtrage par recherche (titre de séance)
-      if (searchTerm && !session.title?.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+      // Filtrage par recherche (titre de séance ou participant)
+      if (searchTerm) {
+        const query = searchTerm.toLowerCase();
+        
+        // 1. Match sur le titre de la séance
+        const titleMatch = session.title?.toLowerCase().includes(query);
+        if (titleMatch) return true;
+
+        // 2. Match sur les participants (Nom, Prénom, Email) via l'index optimisé
+        const participantMatch = session.participantIds?.some(id => {
+          const client = clientsById.get(id);
+          if (!client) return false;
+          
+          const firstName = client.firstName?.toLowerCase() || '';
+          const lastName = client.lastName?.toLowerCase() || '';
+          const email = client.email?.toLowerCase() || '';
+          
+          // On vérifie les critères sans recalculer inutilement
+          return (
+            firstName.includes(query) ||
+            lastName.includes(query) ||
+            (firstName + " " + lastName).includes(query) ||
+            (lastName + " " + firstName).includes(query) ||
+            email.includes(query)
+          );
+        });
+
+        if (!participantMatch) return false;
+      }
       
       // Filtrage par type
       if (filterType !== 'ALL' && session.type !== filterType) return false;
@@ -145,7 +179,7 @@ const SessionList: React.FC<SessionListProps> = ({
 
       return true;
     }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [sessions, activeCategory, searchTerm, filterType, filterFacilitator, filterAttendance, filterStartDate, filterEndDate, activeRole, currentUserName]);
+  }, [sessions, activeCategory, searchTerm, filterType, filterFacilitator, filterAttendance, filterStartDate, filterEndDate, activeRole, currentUserName, clientsById]);
 
   const totalItems = filteredSessions.length;
   const totalPages = Math.ceil(totalItems / itemsPerPage);
@@ -511,7 +545,7 @@ const SessionList: React.FC<SessionListProps> = ({
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slds-text-secondary" size={12} />
             <input 
               type="text" 
-              placeholder="Rechercher..."
+              placeholder="Rechercher par séance, client ou email..."
               className="slds-input slds-input-compact pl-8 py-1.5"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
