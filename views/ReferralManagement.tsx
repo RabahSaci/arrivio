@@ -274,7 +274,11 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
       
       // Recalcule la priorité
       let priority = getPriorityCategory(client.arrivalDateApprox || '');
-      if (client.assignedPartnerId) priority = "REFERRED";
+      
+      // Un client n'est considéré comme "RÉFÉRÉ" (vert) que s'il a un partenaire assigné ET un statut de dossier différent de EN_ATTENTE
+      if (client.assignedPartnerId && client.status !== ReferralStatus.PENDING) {
+        priority = "REFERRED";
+      }
 
       return {
         ...client,
