@@ -1086,22 +1086,7 @@ app.post('/api/messages/mark-read', async (req, res) => {
   }
 });
 
-// Generic POST (all other tables)
-// Create entry
-app.post('/api/:table', async (req, res) => {
-  const { table } = req.params;
-  
-  // app_settings: restricted to ADMIN only
-  if (table === 'app_settings') {
-    return authorize([UserRole.ADMIN])(req, res, async () => {
-      await handleCreate(table, req, res);
-    });
-  }
-  
-  await handleCreate(table, req, res);
-});
-
-// Generic Bulk Create
+// Generic Bulk Create - Must be defined BEFORE Single Create to prevent route collision
 app.post('/api/:table/bulk', async (req, res) => {
   const { table } = req.params;
   const items = req.body;
@@ -1132,6 +1117,21 @@ app.post('/api/:table/bulk', async (req, res) => {
     console.error(`[BULK CREATE] Error in ${table}:`, err.message);
     res.status(500).json({ error: `Erreur lors de la création groupée dans ${table}.` });
   }
+});
+
+// Generic POST (all other tables)
+// Create entry
+app.post('/api/:table', async (req, res) => {
+  const { table } = req.params;
+  
+  // app_settings: restricted to ADMIN only
+  if (table === 'app_settings') {
+    return authorize([UserRole.ADMIN])(req, res, async () => {
+      await handleCreate(table, req, res);
+    });
+  }
+  
+  await handleCreate(table, req, res);
 });
 
 async function handleCreate(table, req, res) {

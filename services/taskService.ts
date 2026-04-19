@@ -21,6 +21,12 @@ export const refreshAutomatedTasks = (
   const now = new Date();
   const todayStr = now.toLocaleDateString('en-CA'); // YYYY-MM-DD local
 
+  // Limite temporelle : On ne traite que les sessions des 30 derniers jours pour optimiser
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  const relevantSessions = allSessions.filter(s => new Date(s.date) >= thirtyDaysAgo);
+
   // Helper to find advisor name
   const getAdvisorInfo = (id: string | null | undefined) => {
     if (!id) return { id: currentUserId, name: currentUserName };
@@ -29,7 +35,7 @@ export const refreshAutomatedTasks = (
   };
 
   // 1. SCAN SESSIONS (Webinaires terminés sans participants)
-  allSessions.forEach(session => {
+  relevantSessions.forEach(session => {
     if (session.category === SessionCategory.GROUP) {
       const sessionDate = new Date(session.date);
       // Si la séance est passée
@@ -100,12 +106,11 @@ export const refreshAutomatedTasks = (
       const alreadyExists = existingTasks.some(t => t.processedSignature === signature);
 
       if (!alreadyExists) {
-        // A. Trouvons la séance "Établissement" Individuelle la plus récente de ce client
-        const establishmentSessions = allSessions
+        // A. Trouvons la séance "Établissement" la plus récente de ce client
+        const establishmentSessions = relevantSessions
           .filter(s => 
             s.type === SessionType.ESTABLISHMENT && 
-            (s.category === SessionCategory.INDIVIDUAL ? s.individualStatus === AttendanceStatus.PRESENT : s.participantIds?.includes(client.id)) &&
-            new Date(s.date) >= new Date('2025-01-01') // Elargi pour être sûr de capter les tests
+            (s.category === SessionCategory.INDIVIDUAL ? s.individualStatus === AttendanceStatus.PRESENT : s.participantIds?.includes(client.id))
           )
           .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
