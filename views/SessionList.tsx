@@ -679,8 +679,8 @@ const SessionList: React.FC<SessionListProps> = ({
       {/* Modale de Détails SLDS */}
       {viewingSession && (
         <div className="fixed inset-0 bg-black/50 z-[250] flex items-center justify-center p-4">
-          <div className="slds-card w-full max-w-xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-4 border-b border-slds-border flex justify-between items-center bg-slds-bg">
+          <div className="slds-card w-full max-w-xl max-h-[90vh] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col">
+            <div className="p-4 border-b border-slds-border flex justify-between items-center bg-slds-bg shrink-0">
                <div className="flex items-center gap-3">
                  <div className={`p-2 rounded ${viewingSession.category === SessionCategory.GROUP ? 'bg-indigo-500 text-white' : 'bg-slds-brand text-white'} shadow-sm`}>
                    <CalendarDays size={20} />
@@ -692,7 +692,7 @@ const SessionList: React.FC<SessionListProps> = ({
                <button onClick={() => setViewingSession(null)} className="p-2 hover:bg-white rounded text-slds-text-secondary"><X size={20} /></button>
             </div>
             
-            <div className="p-6 space-y-6 overflow-y-auto flex-1">
+            <div className="p-6 space-y-6 overflow-y-auto flex-1 min-h-0">
                <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-1">
                     <p className="text-[10px] font-bold text-slds-text-secondary uppercase">Service</p>

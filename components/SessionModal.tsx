@@ -239,7 +239,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
                         onChange={(e) => setClientSearchQuery(e.target.value)}
                       />
                       {filteredClientsForSearch.length > 0 && (
-                        <div className="absolute top-full left-0 w-full bg-white border border-slds-border rounded shadow-xl mt-1 z-[400] overflow-hidden divide-y divide-slds-border">
+                        <div className="absolute top-full left-0 w-full bg-white border border-slds-border rounded shadow-xl mt-1 z-[400] overflow-hidden divide-y divide-slds-border max-h-60 overflow-y-auto">
                           {filteredClientsForSearch.map(c => (
                             <button 
                               key={c.id}
