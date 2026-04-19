@@ -153,6 +153,15 @@ const SessionModal: React.FC<SessionModalProps> = ({
       return;
     }
 
+    // Validation : Pas de séances individuelles dans le futur pour les conseillers
+    const sessionDate = formData.get('date') as string;
+    const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
+    
+    if (category === SessionCategory.INDIVIDUAL && sessionDate > today && activeRole === UserRole.ADVISOR) {
+      alert("Erreur : Les conseillers ne peuvent pas programmer de séances individuelles à des dates futures. Veuillez saisir une séance passée ou présente.");
+      return;
+    }
+
     const facilitatorName = isGroup ? (formData.get('facilitatorName') as string) : (session?.facilitatorName || currentUserName);
     const contractId = isGroup ? (formData.get('contractId') as string) : undefined;
     

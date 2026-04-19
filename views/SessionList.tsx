@@ -300,9 +300,19 @@ const SessionList: React.FC<SessionListProps> = ({
 
           const newSessions: any[] = [];
           const failedIucs: string[] = [];
+          let skippedFutureDates = 0;
+          const today = getTodayString();
+
           for (const row of rows) {
             const iuc = getValue(row, idx.iuc);
             if (!iuc) continue;
+
+            // Protection : Pas de sessions individuelles dans le futur pour les conseillers
+            const sessionDate = formatDate(row[idx.date]);
+            if (activeRole === UserRole.ADVISOR && sessionDate && sessionDate > today) {
+              skippedFutureDates++;
+              continue;
+            }
 
             const normalize = (s: string) => {
               if (!s) return '';
@@ -372,6 +382,9 @@ const SessionList: React.FC<SessionListProps> = ({
           if (newSessions.length > 0) {
             await apiService.bulkCreateSessions(newSessions);
             let successMsg = `${newSessions.length} séance(s) importée(s) avec succès.`;
+            if (skippedFutureDates > 0) {
+              successMsg += `\n\n⚠️ ${skippedFutureDates} séance(s) individuelle(s) n'ont pas été importées car elles étaient datées dans le futur. Les conseillers ne peuvent consigner que des sessions passées ou présentes.`;
+            }
             if (failedIucs.length > 0) {
               successMsg += `\n\nAttention: ${failedIucs.length} ligne(s) ont été ignorées car l'IUC n'a pas été trouvé :\n- ` + [...new Set(failedIucs)].join("\n- ");
             }
@@ -379,10 +392,13 @@ const SessionList: React.FC<SessionListProps> = ({
             window.location.reload(); 
           } else {
             let msg = "Aucune séance n'a été importée.";
+            if (skippedFutureDates > 0) {
+              msg += `\n\n⚠️ ${skippedFutureDates} séance(s) individuelle(s) ont été ignorées car elles étaient datées dans le futur.`;
+            }
             if (failedIucs.length > 0) {
               msg += "\n\nLes identifiants suivants n'ont pas été trouvés dans la base de données :\n- " + [...new Set(failedIucs)].join("\n- ");
               msg += "\n\nVérifiez que ces numéros correspondent exactement à ce qui est affiché dans votre liste de clients.";
-            } else {
+            } else if (skippedFutureDates === 0) {
               msg += " Vérifiez que votre fichier contient bien des données sous les en-têtes corrects.";
             }
             alert(msg);
