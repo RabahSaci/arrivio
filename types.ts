@@ -105,11 +105,13 @@ export interface Session {
   facilitatorName: string;
   facilitatorType: FacilitatorType;
   advisorName: string;
+  advisorId?: string; // ID du créateur (pour permissions)
   contractId?: string; // Lié à un contrat spécifique
   individualStatus?: AttendanceStatus;
   discussedNeeds?: string;
   actions?: string;
   zoomLink?: string;
+  zoomId?: string;
   needsInterpretation: boolean;
   invoiceReceived: boolean;
   invoiceSubmitted: boolean;
@@ -121,8 +123,8 @@ export interface UserActivityLog {
   id: string;
   userId: string;
   userName: string;
-  actionType: 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN';
-  entityType: 'SESSION' | 'CLIENT' | 'MENTOR' | 'CONTRACT' | 'PROFILE' | 'PARTNER';
+  actionType: 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'SECURITY_ALERT';
+  entityType: 'SESSION' | 'CLIENT' | 'MENTOR' | 'CONTRACT' | 'PROFILE' | 'PARTNER' | 'AUTHENTIFICATION';
   details: string;
   timestamp: string;
 }
@@ -198,6 +200,7 @@ export interface Client {
   isUnsubscribed?: boolean;
   assignedPartnerId?: string;
   secondaryPartnerIds?: string[];
+  referredById?: string;
   assignedMentorId?: string;
   referralDate?: string;
   acknowledgedAt?: string;
@@ -264,4 +267,37 @@ export interface Conversation {
   otherParticipant: Profile;
   lastMessage?: Message;
   unreadCount: number;
+}
+
+export enum TaskStatus {
+  PENDING = 'A_FAIRE',
+  COMPLETED = 'TERMINEE',
+  DEFERRED = 'REPORTEE'
+}
+
+export enum TaskPriority {
+  LOW = 'BASSE',
+  MEDIUM = 'MOYENNE',
+  HIGH = 'HAUTE',
+  CRITICAL = 'CRITIQUE'
+}
+
+export type TaskType = 'UPLOAD_PARTICIPANTS' | 'REFER_CLIENT' | 'RENEW_CONTRACT' | 'MANUAL' | 'FILL_SESSION_FOLLOWUP';
+
+export interface WorkflowTask {
+  id: string;
+  type: TaskType;
+  title: string;
+  description?: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  assignedToId: string;
+  assignedToName: string;
+  relatedEntityId?: string;
+  relatedEntityType?: 'SESSION' | 'CLIENT' | 'CONTRACT';
+  dueDate: string;
+  createdAt: string;
+  completedAt?: string;
+  comment?: string;
+  processedSignature?: string; // Signature unique pour éviter les doublons auto
 }

@@ -24,8 +24,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       try {
         const data = await apiService.fetchTable('app_settings');
         const settings = Array.isArray(data) ? data[0] : data;
-        if (settings?.logo_url) setCustomLogoUrl(settings.logo_url);
-        if (settings?.login_photo_url) setLoginPhotoUrl(settings.login_photo_url);
+        if (settings?.logoUrl) setCustomLogoUrl(settings.logoUrl);
+        if (settings?.loginPhotoUrl) setLoginPhotoUrl(settings.loginPhotoUrl);
       } catch (e) {
         // Ignore if table doesn't exist yet
       }
@@ -44,8 +44,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       const { user, profile } = data;
 
       if (profile) {
-        const fullName = `${profile.first_name} ${profile.last_name}`;
-        onLogin(profile.role as UserRole, user.id, fullName, profile.partner_id);
+        const fullName = `${profile.firstName} ${profile.lastName}`;
+        onLogin(profile.role as UserRole, user.id, fullName, profile.partnerId);
       } else {
         onLogin(UserRole.ADVISOR, user.id, email);
       }

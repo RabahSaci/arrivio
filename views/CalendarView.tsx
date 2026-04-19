@@ -1,8 +1,9 @@
 
 import React, { useState, useMemo } from 'react';
-import { Session, SessionType, SessionCategory, FacilitatorType, Client, Partner, PartnerType, Contract, UserRole } from '../types';
+import { Session, SessionType, SessionCategory, FacilitatorType, Client, Partner, PartnerType, Contract, UserRole, Profile } from '../types';
 import { SESSION_TYPE_LABELS } from '../constants';
 import ConfirmModal from '../components/ConfirmModal';
+import SessionModal from '../components/SessionModal';
 import { 
   CalendarDays, 
   ChevronLeft, 
@@ -31,86 +32,73 @@ interface CalendarViewProps {
   contracts: Contract[];
   activeRole: UserRole;
   currentUserName: string;
+  currentUserId?: string;
   onAddSession: (session: Session) => void;
   onUpdateSession?: (session: Session) => void;
   onDeleteSession?: (sessionId: string) => void;
+  allProfiles: Profile[];
 }
 
-const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners, contracts, activeRole, currentUserName, onAddSession, onUpdateSession, onDeleteSession }) => {
+const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners, contracts, activeRole, currentUserName, currentUserId, onAddSession, onUpdateSession, onDeleteSession, allProfiles }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [showSessionModal, setShowSessionModal] = useState(false);
+  const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [viewingSession, setViewingSession] = useState<Session | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState('');
-  
-  const [formFacilitatorType, setFormFacilitatorType] = useState<FacilitatorType>(FacilitatorType.CONSULTANT);
-  const [selectedConsultantName, setSelectedConsultantName] = useState<string>('');
-  const [selectedContractId, setSelectedContractId] = useState<string>('');
-  const [formDate, setFormDate] = useState<string>('');
 
   const [filterService, setFilterService] = useState<SessionType | 'ALL'>('ALL');
   const [filterAdvisor, setFilterAdvisor] = useState<string>('ALL');
+  const [filterFacilitatorType, setFilterFacilitatorType] = useState<FacilitatorType | 'ALL'>('ALL');
+  const [filterFacilitatorName, setFilterFacilitatorName] = useState<string>('ALL');
+  const [filterStartDate, setFilterStartDate] = useState<string>('');
+  const [filterEndDate, setFilterEndDate] = useState<string>('');
 
   const isAdminOrManager = activeRole === UserRole.ADMIN || activeRole === UserRole.MANAGER;
 
   const advisors = useMemo(() => Array.from(new Set(sessions.map(s => s.advisorName))), [sessions]);
 
-  const availableFacilitators = useMemo(() => {
-    console.info(`[CalendarView] Total partners received: ${partners.length}`);
-    console.info(`[CalendarView] Partner types:`, partners.map(p => `${p.name}=${p.type}`).join(', '));
-    if (formFacilitatorType === FacilitatorType.CONSULTANT) {
-      const result = partners.filter(p => p.type === PartnerType.CONSULTANT);
-      console.info(`[CalendarView] CONSULTANT facilitators found: ${result.length}`);
-      return result;
-    } else {
-      return partners.filter(p => p.type === PartnerType.INTERNAL || p.type === PartnerType.EXTERNAL);
-    }
-  }, [partners, formFacilitatorType]);
-
-  const activeContractsForConsultant = useMemo(() => {
-    if (!selectedConsultantName || formFacilitatorType !== FacilitatorType.CONSULTANT) return [];
-    
-    // Filtrer les contrats actifs
-    const relevantContracts = contracts.filter(c => c.consultantName === selectedConsultantName && c.status === 'ACTIVE');
-    
-    // Recalculer dynamiquement l'utilisation pour correspondre au module Contrats & Paiements
-    return relevantContracts.map(c => {
-      const actualUsed = sessions.filter(s => s.contractId === c.id).length;
-      return { ...c, usedSessions: actualUsed };
-    });
-  }, [contracts, sessions, selectedConsultantName, formFacilitatorType]);
-
-  const validationError = useMemo(() => {
-    if (formFacilitatorType !== FacilitatorType.CONSULTANT || !selectedContractId) return null;
-    
-    const contract = activeContractsForConsultant.find(c => c.id === selectedContractId);
-    if (!contract) return null;
-
-    // Quota check
-    if (contract.usedSessions >= contract.totalSessions) {
-      return `Attention : Le quota de ce contrat est atteint (${contract.usedSessions}/${contract.totalSessions}).`;
-    }
-
-    // Date check
-    if (formDate) {
-      if (formDate < contract.startDate || formDate > contract.endDate) {
-        return `Date invalide : La séance doit avoir lieu entre le ${new Date(contract.startDate + 'T12:00:00').toLocaleDateString('fr-FR')} et le ${new Date(contract.endDate + 'T12:00:00').toLocaleDateString('fr-FR')}.`;
+  
+  const uniqueFacilitators = useMemo(() => {
+    // Get all unique facilitator names from GROUP sessions only
+    const facMap = new Map<string, FacilitatorType>();
+    sessions.forEach(s => {
+      if (s.category === SessionCategory.GROUP && s.facilitatorName) {
+        facMap.set(s.facilitatorName, s.facilitatorType);
       }
-    }
+    });
+    return Array.from(facMap.entries()).map(([name, type]) => ({ name, type }));
+  }, [sessions]);
 
-    return null;
-  }, [selectedContractId, formDate, activeContractsForConsultant]);
+  const filteredFacilitatorNames = useMemo(() => {
+    if (filterFacilitatorType === 'ALL') {
+      return Array.from(new Set(uniqueFacilitators.map(f => f.name))).sort();
+    }
+    return uniqueFacilitators
+      .filter(f => f.type === filterFacilitatorType)
+      .map(f => f.name)
+      .sort();
+  }, [uniqueFacilitators, filterFacilitatorType]);
+
+
 
   const filteredSessions = useMemo(() => {
     return sessions.filter(s => {
       const isGroup = s.category === SessionCategory.GROUP;
       if (!isGroup) return false;
+      
       const matchService = filterService === 'ALL' || s.type === filterService;
       const matchAdvisor = filterAdvisor === 'ALL' || s.advisorName === filterAdvisor;
-      return matchService && matchAdvisor;
+      const matchFacType = filterFacilitatorType === 'ALL' || s.facilitatorType === filterFacilitatorType;
+      const matchFacName = filterFacilitatorName === 'ALL' || s.facilitatorName === filterFacilitatorName;
+      
+      let matchDate = true;
+      if (filterStartDate) matchDate = matchDate && s.date >= filterStartDate;
+      if (filterEndDate) matchDate = matchDate && s.date <= filterEndDate;
+
+      return matchService && matchAdvisor && matchFacType && matchFacName && matchDate;
     });
-  }, [sessions, filterService, filterAdvisor]);
+  }, [sessions, filterService, filterAdvisor, filterFacilitatorType, filterFacilitatorName, filterStartDate, filterEndDate]);
 
   const stats = useMemo(() => {
     const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD Local
@@ -154,64 +142,24 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
     }
   };
 
-  const handleCreateSession = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const facilitatorName = formData.get('facilitatorName') as string;
-    const facilitatorType = formData.get('facilitatorType') as FacilitatorType;
-    const contractId = formData.get('contractId') as string;
-
-    if (facilitatorType === FacilitatorType.CONSULTANT && !contractId) {
-      alert("Veuillez sélectionner un contrat.");
-      return;
+  const handleSaveSession = (sessionData: Session) => {
+    if (editingSession) {
+      onUpdateSession?.(sessionData);
+    } else {
+      onAddSession(sessionData);
     }
-    
-    const newSession: Session = {
-      id: Date.now().toString(),
-      title: formData.get('title') as string,
-      type: formData.get('type') as SessionType,
-      category: SessionCategory.GROUP,
-      date: formData.get('date') as string,
-      startTime: formData.get('startTime') as string,
-      duration: parseInt(formData.get('duration') as string),
-      participantIds: [], 
-      noShowIds: [], 
-      location: formData.get('location') as string,
-      notes: '', 
-      facilitatorName: facilitatorName,
-      facilitatorType: facilitatorType,
-      contractId: contractId || undefined,
-      advisorName: currentUserName,
-      zoomLink: formData.get('zoomLink') as string,
-      needsInterpretation: formData.get('needsInterpretation') === 'true',
-      invoiceReceived: false,
-      invoiceSubmitted: false,
-      invoicePaid: false,
-    };
-
-    onAddSession(newSession);
-    setShowAddModal(false);
-  };
-
-  const handleUpdateSessionInternal = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!viewingSession || !onUpdateSession) return;
-    const formData = new FormData(e.currentTarget);
-    onUpdateSession({
-      ...viewingSession,
-      title: formData.get('title') as string,
-      date: formData.get('date') as string,
-      startTime: formData.get('startTime') as string,
-      location: formData.get('location') as string,
-      zoomLink: formData.get('zoomLink') as string,
-    });
-    setViewingSession(null);
-    setIsEditing(false);
+    setShowSessionModal(false);
+    setEditingSession(null);
   };
 
   // Comparaison robuste pour les droits d'auteur
   const checkCanModify = (session: Session) => {
     if (isAdminOrManager) return true;
+    
+    // Check by ID (most secure)
+    if (currentUserId && session.advisorId && session.advisorId === currentUserId) return true;
+    
+    // Fallback to name matching (less precise but works for legacy data)
     if (!currentUserName || !session.advisorName) return false;
     return session.advisorName.trim().toLowerCase() === currentUserName.trim().toLowerCase();
   };
@@ -235,34 +183,103 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
       </div>
 
       {/* Filtres SLDS */}
-      <div className="slds-card p-4 flex flex-wrap gap-4 items-center">
-        <div className="flex items-center gap-2">
-          <Filter size={16} className="text-slds-text-secondary" />
-          <span className="text-xs font-bold text-slds-text-secondary uppercase">Filtres :</span>
+      <div className="slds-card px-10 py-8 flex flex-col gap-6">
+        {/* Ligne 1 : Services et Conseillers */}
+        <div className="flex flex-nowrap gap-4 items-center overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-2">
+            <Filter size={16} className="text-slds-text-secondary" />
+            <span className="text-xs font-bold text-slds-text-secondary uppercase whitespace-nowrap">Filtres :</span>
+          </div>
+          
+          <select 
+            className="slds-input py-1 px-2 text-xs w-auto min-w-[140px]"
+            value={filterService}
+            onChange={(e) => setFilterService(e.target.value as any)}
+          >
+            <option value="ALL">Tous les Services</option>
+            {Object.values(SessionType).map(t => <option key={t} value={t}>{SESSION_TYPE_LABELS[t]}</option>)}
+          </select>
+
+          <select 
+            className="slds-input py-1 px-2 text-xs w-auto min-w-[140px]"
+            value={filterAdvisor}
+            onChange={(e) => setFilterAdvisor(e.target.value)}
+          >
+            <option value="ALL">Tous les Conseillers</option>
+            {advisors.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+
+          <div className="flex items-center gap-2 shrink-0 h-8 border-l border-slate-100 pl-4">
+            <UserCog size={14} className="text-slate-400" />
+            <select 
+              className="slds-input py-1 px-2 text-xs w-auto min-w-[130px]"
+              value={filterFacilitatorType}
+              onChange={(e) => {
+                setFilterFacilitatorType(e.target.value as any);
+                setFilterFacilitatorName('ALL');
+              }}
+            >
+              <option value="ALL">Tous les Types</option>
+              <option value={FacilitatorType.CONSULTANT}>Consultants Externes</option>
+              <option value={FacilitatorType.ORGANIZATION}>Internes / Partenaires</option>
+            </select>
+          </div>
+
+          <div className="ml-auto">
+             <button 
+               onClick={() => { 
+                  setEditingSession(null);
+                  setShowSessionModal(true); 
+               }}
+               className="slds-button slds-button-brand !px-6"
+             >
+               <Plus size={14} className="mr-2" /> Planifier
+             </button>
+          </div>
         </div>
-        <select 
-          className="slds-input py-1 px-2 text-xs w-auto"
-          value={filterService}
-          onChange={(e) => setFilterService(e.target.value as any)}
-        >
-          <option value="ALL">Tous les Services</option>
-          {Object.values(SessionType).map(t => <option key={t} value={t}>{SESSION_TYPE_LABELS[t]}</option>)}
-        </select>
-        <select 
-          className="slds-input py-1 px-2 text-xs w-auto"
-          value={filterAdvisor}
-          onChange={(e) => setFilterAdvisor(e.target.value)}
-        >
-          <option value="ALL">Tous les Conseillers</option>
-          {advisors.map(a => <option key={a} value={a}>{a}</option>)}
-        </select>
-        <div className="ml-auto flex items-center gap-2">
-           <button 
-             onClick={() => { const d = getLocalDateString(new Date()); setSelectedDate(d); setFormDate(d); setShowAddModal(true); }}
-             className="slds-button slds-button-brand"
-           >
-             <Plus size={14} className="mr-2" /> Planifier
-           </button>
+
+        {/* Ligne 2 : Intervenants et Période (Linéaire) */}
+        <div className="flex flex-nowrap items-center gap-6 pt-3 border-t border-slds-border/50 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-2 shrink-0">
+            <User size={14} className="text-slds-text-secondary" />
+            <select 
+              className="slds-input py-1 px-2 text-xs w-auto min-w-[150px]"
+              value={filterFacilitatorName}
+              onChange={(e) => setFilterFacilitatorName(e.target.value)}
+              disabled={filteredFacilitatorNames.length === 0}
+            >
+              <option value="ALL">Tous les Intervenants</option>
+              {filteredFacilitatorNames.map(name => <option key={name} value={name}>{name}</option>)}
+            </select>
+          </div>
+
+          <div className="h-6 w-px bg-slate-100 shrink-0" />
+
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-[10px] font-bold text-slate-400 uppercase whitespace-nowrap">Période du</span>
+            <input 
+              type="date" 
+              className="slds-input py-1 px-2 text-xs w-auto"
+              value={filterStartDate}
+              onChange={(e) => setFilterStartDate(e.target.value)}
+            />
+            <span className="text-[10px] font-bold text-slate-400 uppercase whitespace-nowrap">au</span>
+            <input 
+              type="date" 
+              className="slds-input py-1 px-2 text-xs w-auto"
+              value={filterEndDate}
+              onChange={(e) => setFilterEndDate(e.target.value)}
+            />
+            {(filterStartDate || filterEndDate) && (
+              <button 
+                onClick={() => { setFilterStartDate(''); setFilterEndDate(''); }}
+                className="p-1 hover:bg-slate-100 rounded text-slate-400"
+                title="Effacer les dates"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -292,7 +309,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
             return (
               <div 
                 key={idx} 
-                onDoubleClick={() => { if(date) { const d = getLocalDateString(date); setSelectedDate(d); setFormDate(d); setShowAddModal(true); } }}
+                onDoubleClick={() => { if(date) { setEditingSession(null); setShowSessionModal(true); } }}
                 className={`border-r border-b border-slds-border p-1 relative transition-colors cursor-pointer select-none ${date ? 'bg-white hover:bg-slds-bg' : 'bg-slds-bg'} ${isToday ? 'bg-blue-50' : ''}`}
               >
                 {date && (
@@ -304,7 +321,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
                       {daySessions.map(s => (
                         <div 
                           key={s.id}
-                          onClick={(e) => { e.stopPropagation(); setViewingSession(s); setIsEditing(false); }}
+                          onClick={(e) => { e.stopPropagation(); setViewingSession(s); }}
                           className={`px-1 py-0.5 rounded text-white text-[8px] font-bold truncate relative ${getSessionStyle(s.type)} shadow-sm transition-transform hover:scale-[1.02] z-10`}
                         >
                           <span className="opacity-80 mr-1">{s.startTime}</span>
@@ -331,7 +348,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
                  </div>
                  <div>
                    <h3 className="text-base font-bold text-slds-text-primary">
-                     {isEditing ? 'Modifier la séance' : viewingSession.title}
+                     {viewingSession.title}
                    </h3>
                  </div>
                </div>
@@ -339,37 +356,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
              </div>
 
              <div className="p-6">
-               {isEditing ? (
-                 <form onSubmit={handleUpdateSessionInternal} className="space-y-4">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Titre</label>
-                      <input name="title" defaultValue={viewingSession.title} required className="slds-input" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Date</label>
-                        <input type="date" name="date" defaultValue={viewingSession.date} required className="slds-input" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Heure</label>
-                        <input type="time" name="startTime" defaultValue={viewingSession.startTime} required className="slds-input" />
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Lieu</label>
-                      <input name="location" defaultValue={viewingSession.location} className="slds-input" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Lien Zoom</label>
-                      <input name="zoomLink" defaultValue={viewingSession.zoomLink} className="slds-input text-slds-brand" />
-                    </div>
-                    <div className="flex gap-3 pt-4 border-t border-slds-border">
-                      <button type="button" onClick={() => setIsEditing(false)} className="slds-button slds-button-neutral flex-1">Annuler</button>
-                      <button type="submit" className="slds-button slds-button-brand flex-1">Enregistrer</button>
-                    </div>
-                 </form>
-               ) : (
-                 <div className="space-y-6">
+                <div className="space-y-6">
                    <div className="grid grid-cols-2 gap-6">
                      <div className="space-y-1">
                         <p className="text-[10px] font-bold text-slds-text-secondary uppercase">Planification</p>
@@ -426,15 +413,18 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
                           <Trash2 size={14} className="mr-2" /> Supprimer
                         </button>
                         <button 
-                          onClick={() => setIsEditing(true)}
+                          onClick={() => { 
+                            setEditingSession(viewingSession);
+                            setViewingSession(null);
+                            setShowSessionModal(true); 
+                          }}
                           className="slds-button slds-button-brand flex-1"
                         >
                           <Edit2 size={14} className="mr-2" /> Modifier
                         </button>
                      </div>
                    )}
-                 </div>
-               )}
+                </div>
              </div>
           </div>
         </div>
@@ -450,132 +440,21 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
         onCancel={() => setSessionToDelete(null)}
       />
 
-      {/* Modale d'Ajout SLDS */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 z-[300] flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="slds-card w-full max-w-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-4 border-b border-slds-border flex justify-between items-center bg-slds-bg">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded bg-slds-brand text-white shadow-sm"><Plus size={20} /></div>
-                <h3 className="text-base font-bold text-slds-text-primary">Nouvelle Séance de Groupe</h3>
-              </div>
-              <button onClick={() => { setShowAddModal(false); setSelectedContractId(''); setFormDate(''); }} className="p-2 hover:bg-white rounded text-slds-text-secondary"><X size={20} /></button>
-            </div>
+      <SessionModal 
+        isOpen={showSessionModal}
+        onClose={() => setShowSessionModal(false)}
+        session={editingSession}
+        initialCategory={SessionCategory.GROUP}
+        clients={clients}
+        partners={partners}
+        contracts={contracts}
+        allProfiles={allProfiles} 
+        activeRole={activeRole}
+        currentUserName={currentUserName}
+        currentUserId={currentUserId}
+        onSave={handleSaveSession}
+      />
 
-            <form onSubmit={handleCreateSession} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1 md:col-span-2">
-                    <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Titre</label>
-                    <input name="title" required placeholder="Ex: Revue de CV" className="slds-input" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Type de Service</label>
-                    <select name="type" required className="slds-input">
-                      {Object.values(SessionType).map(t => <option key={t} value={t}>{SESSION_TYPE_LABELS[t]}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Date</label>
-                    <input type="date" name="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} required className="slds-input" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Heure</label>
-                      <input type="time" name="startTime" defaultValue="09:00" required className="slds-input" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Durée (min)</label>
-                      <input type="number" name="duration" defaultValue="60" required className="slds-input" />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Lieu</label>
-                    <input name="location" defaultValue="Bureaux CFGT" className="slds-input" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-1"><Video size={12} /> Lien Zoom</label>
-                    <input name="zoomLink" placeholder="https://zoom.us/j/..." className="slds-input" />
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-slds-border space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Type d'Intervenant</label>
-                      <select 
-                        name="facilitatorType" 
-                        required 
-                        className="slds-input text-slds-brand"
-                        value={formFacilitatorType}
-                        onChange={(e) => { 
-                          setFormFacilitatorType(e.target.value as FacilitatorType); 
-                          setSelectedConsultantName(''); 
-                          setSelectedContractId('');
-                        }}
-                      >
-                        <option value={FacilitatorType.CONSULTANT}>Consultant Externe</option>
-                        <option value={FacilitatorType.ORGANIZATION}>Organisme Partenaire</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Nom de l'Intervenant</label>
-                      <select 
-                        name="facilitatorName" 
-                        required 
-                        value={selectedConsultantName}
-                        onChange={(e) => { setSelectedConsultantName(e.target.value); setSelectedContractId(''); }}
-                        className="slds-input"
-                      >
-                        <option value="">Sélectionner...</option>
-                        {availableFacilitators.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-                      </select>
-                    </div>
-                  </div>
-
-                  {formFacilitatorType === FacilitatorType.CONSULTANT && selectedConsultantName && (
-                    <div className="p-3 bg-blue-50 border border-blue-100 rounded">
-                       <div className="flex items-center gap-2 mb-2">
-                          <FileText size={14} className="text-blue-600" />
-                          <p className="text-[10px] font-bold text-blue-600 uppercase">Contrat d'imputation</p>
-                       </div>
-                       <select 
-                        name="contractId" 
-                        required 
-                        value={selectedContractId}
-                        onChange={(e) => setSelectedContractId(e.target.value)}
-                        className={`slds-input bg-white ${validationError ? 'border-amber-400 ring-2 ring-amber-50' : ''}`}
-                       >
-                         <option value="">Choisir un contrat actif...</option>
-                         {activeContractsForConsultant.map(c => (
-                           <option key={c.id} value={c.id}>
-                             Contrat {c.id.split('-')[1]} - {c.serviceType} ({c.usedSessions}/{c.totalSessions})
-                           </option>
-                         ))}
-                       </select>
-                       {validationError && (
-                         <div className="mt-2 flex items-start gap-2 p-2 bg-amber-50 border border-amber-200 rounded text-[10px] font-bold text-amber-700 animate-in fade-in slide-in-from-top-1">
-                           <AlertCircle size={14} className="flex-shrink-0" />
-                           {validationError}
-                         </div>
-                       )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex justify-end gap-3 pt-4 border-t border-slds-border">
-                  <button type="button" onClick={() => { setShowAddModal(false); setSelectedContractId(''); }} className="slds-button slds-button-neutral">Annuler</button>
-                  <button 
-                    type="submit" 
-                    disabled={!!validationError}
-                    className="slds-button slds-button-brand disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Confirmer
-                  </button>
-                </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

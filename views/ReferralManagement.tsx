@@ -1,7 +1,8 @@
-
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Client, ReferralStatus, Partner, UserRole, Session, SessionType } from '../types';
 import { STATUS_COLORS } from '../constants';
+import Pagination from '../components/Pagination';
+import { apiService } from '../services/apiService';
 import { 
   Search, 
   Building2, 
@@ -15,24 +16,38 @@ import {
   Calendar,
   Filter,
   User,
-  Share2
+  Share2,
+  Loader2,
+  Database
 } from 'lucide-react';
 
 interface ReferralManagementProps {
-  clients: Client[];
   partners: Partner[];
-  sessions: Session[];
   activeRole: UserRole;
   currentPartnerId?: string;
   currentUserId?: string;
+  clients: Client[];
+  sessions: Session[];
+  onSelectClient: (client: Client) => void;
 }
 
-const ReferralManagement: React.FC<ReferralManagementProps> = ({ clients, partners, sessions, activeRole, currentPartnerId, currentUserId }) => {
+const ReferralManagement: React.FC<ReferralManagementProps> = ({ 
+  partners, 
+  activeRole, 
+  currentPartnerId, 
+  currentUserId,
+  clients,
+  sessions,
+  onSelectClient
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterPartner, setFilterPartner] = useState('ALL');
   const [filterAdvisor, setFilterAdvisor] = useState('ALL');
   const [filterPriority, setFilterPriority] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [isLoading, setIsLoading] = useState(false);
+  const itemsPerPage = 15;
 
   // Helper function for priority logic (shared for filtering and display)
   const getPriorityCategory = (arrivalDateStr: string) => {
@@ -46,6 +61,17 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({ clients, partne
     return "URGENT";
   };
 
+  // Helper for priority sorting
+  const getPriorityValue = (category: string) => {
+    switch(category) {
+      case "URGENT": return 0;
+      case "TO_REFER": return 1;
+      case "NOT_YET": return 2;
+      case "REFERRED": return 3;
+      default: return 4;
+    }
+  };
+
   // Extract unique advisors from sessions
   const advisors = useMemo(() => {
     const unique = new Set<string>();
@@ -53,81 +79,106 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({ clients, partne
     return Array.from(unique).sort();
   }, [sessions]);
 
-  const referredClients = useMemo(() => {
-    return clients
-      .filter(client => {
-        // Filtrage spécifique pour les mentors
-        if (activeRole === UserRole.MENTOR) {
-          return client.assignedMentorId === currentUserId;
-        }
-
-        const isAssignedPrimary = !!client.assignedPartnerId;
-        const isAssignedSecondary = client.secondaryPartnerIds && client.secondaryPartnerIds.length > 0;
-        
-        const hasRelevantSession = sessions.some(s => 
-          s.participantIds?.includes(client.id) && 
-          (s.type === SessionType.ESTABLISHMENT || s.type === SessionType.EMPLOYMENT)
-        );
-
-        if (activeRole === UserRole.PARTNER) {
-          // Visible si partenaire principal OU partenaire secondaire
-          return client.assignedPartnerId === currentPartnerId || client.secondaryPartnerIds?.includes(currentPartnerId || '');
-        }
-        
-        return isAssignedPrimary || isAssignedSecondary || hasRelevantSession;
-      })
-      .map(client => {
-        const partner = partners.find(p => p.id === client.assignedPartnerId);
-        // Find the advisor from the latest session for this client
-        const clientSessions = sessions.filter(s => s.participantIds?.includes(client.id));
-        const lastAdvisor = clientSessions.length > 0 ? clientSessions[0].advisorName : "N/A";
-        
-        let priority = getPriorityCategory(client.arrivalDate);
-        // Si le client est déjà référé (a un partenaire assigné), on change la priorité
-        if (client.assignedPartnerId) {
-          priority = "REFERRED";
-        }
-        
-        // Déterminer le type de mandat pour le partenaire connecté
-        const isSecondaryMandate = activeRole === UserRole.PARTNER && 
-                                   client.secondaryPartnerIds?.includes(currentPartnerId || '') && 
-                                   client.assignedPartnerId !== currentPartnerId;
-
-        return {
-          ...client,
-          partnerName: partner?.name || (client.assignedPartnerId ? 'Organisme inconnu' : 'En attente de référencement'),
-          partnerCity: partner?.city || '',
-          advisorName: lastAdvisor,
-          priority: priority,
-          isSecondaryMandate
-        };
+  // OPTIMIZATION: Index sessions by client ID once to avoid repeated full list scans
+  const sessionsByClient = useMemo(() => {
+    const map = new Map<string, Session[]>();
+    sessions.forEach(s => {
+      s.participantIds?.forEach(id => {
+        if (!map.has(id)) map.set(id, []);
+        map.get(id)!.push(s);
       });
-  }, [clients, partners, activeRole, currentPartnerId, currentUserId, sessions]);
-
-  const filteredData = useMemo(() => {
-    return referredClients.filter(item => {
-      const fullName = (item.firstName + ' ' + item.lastName).toLowerCase();
-      const matchSearch = fullName.includes(searchTerm.toLowerCase()) || 
-                          item.email.toLowerCase().includes(searchTerm.toLowerCase());
-      
-      const matchPartner = filterPartner === 'ALL' || 
-                           (filterPartner === 'NONE' && !item.assignedPartnerId) ||
-                           item.assignedPartnerId === filterPartner;
-
-      const matchAdvisor = filterAdvisor === 'ALL' || item.advisorName === filterAdvisor;
-      const matchPriority = filterPriority === 'ALL' || item.priority === filterPriority;
-      const matchStatus = filterStatus === 'ALL' || item.status === filterStatus;
-                           
-      return matchSearch && matchPartner && matchAdvisor && matchPriority && matchStatus;
     });
-  }, [referredClients, searchTerm, filterPartner, filterAdvisor, filterPriority, filterStatus]);
+    return map;
+  }, [sessions]);
+
+  const filteredClients = useMemo(() => {
+    return clients.filter(client => {
+      // 1. Filtrage métier (uniquement les référencements)
+      if (client.status === 'FERME' || !client.status) return false;
+      
+      // La règle originale: on affiche ceux qui ont arrivalDateApprox OU assignedPartnerId
+      if (!client.arrivalDateApprox && !client.assignedPartnerId) return false;
+
+      // 2. Filtrage partenaire (si compte partenaire, on ne voit que ses affiliés)
+      if (activeRole === UserRole.PARTNER) {
+        if (client.assignedPartnerId !== currentPartnerId) return false;
+      }
+
+      // 3. Filtrage par recherche
+      if (searchTerm) {
+        const query = searchTerm.toLowerCase();
+        if (!(
+          client.firstName?.toLowerCase().includes(query) ||
+          client.lastName?.toLowerCase().includes(query) ||
+          client.clientCode?.toLowerCase().includes(query)
+        )) return false;
+      }
+
+      // 4. Filtrage précis par Partenaire Assigné
+      if (filterPartner !== 'ALL') {
+        if (filterPartner === 'UNASSIGNED') {
+          if (client.assignedPartnerId) return false;
+        } else {
+          if (client.assignedPartnerId !== filterPartner) return false;
+        }
+      }
+
+      // 5. Filtrage par Statut
+      if (filterStatus !== 'ALL') {
+        if (client.status !== filterStatus) return false;
+      }
+
+      return true;
+    }).map(client => {
+      const partner = partners.find(p => p.id === client.assignedPartnerId);
+      const clientSessions = sessionsByClient.get(client.id) || [];
+      const lastAdvisor = clientSessions.length > 0 ? clientSessions[0].advisorName : "N/A";
+      
+      // Recalcule la priorité
+      let priority = getPriorityCategory(client.arrivalDateApprox || '');
+      if (client.assignedPartnerId) priority = "REFERRED";
+
+      return {
+        ...client,
+        partnerName: partner?.name || (client.assignedPartnerId ? 'Organisme inconnu' : 'En attente de référencement'),
+        partnerCity: partner?.city || '',
+        advisorName: lastAdvisor || "N/A",
+        priority: priority
+      };
+    }).filter(client => {
+      // 6. Filtrage par Intervenant
+      if (filterAdvisor !== 'ALL' && client.advisorName !== filterAdvisor) return false;
+
+      // 7. Filtrage par Priorité
+      if (filterPriority !== 'ALL' && client.priority !== filterPriority) return false;
+
+      return true;
+    }).sort((a, b) => {
+      // Tri par urgence puis date d'arrivée
+      const pA = getPriorityValue(a.priority);
+      const pB = getPriorityValue(b.priority);
+      if (pA !== pB) return pA - pB;
+      
+      const dateA = new Date(a.arrivalDateApprox || '').getTime();
+      const dateB = new Date(b.arrivalDateApprox || '').getTime();
+      return dateA - dateB;
+    });
+  }, [clients, activeRole, currentPartnerId, searchTerm, filterPartner, filterStatus, filterAdvisor, filterPriority, partners, sessionsByClient]);
+
+  const totalItems = filteredClients.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+
+  const paginatedItems = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredClients.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredClients, currentPage]);
 
   const stats = useMemo(() => ({
-    total: referredClients.length,
-    unassigned: referredClients.filter(r => !r.assignedPartnerId).length,
-    submitted: referredClients.filter(r => r.status === ReferralStatus.REFERRED).length,
-    accepted: referredClients.filter(r => r.status === ReferralStatus.ACKNOWLEDGED).length,
-  }), [referredClients]);
+    total: totalItems,
+    unassigned: filteredClients.filter(r => !r.assignedPartnerId).length,
+    submitted: filteredClients.filter(r => r.status === ReferralStatus.REFERRED).length,
+    accepted: paginatedItems.filter(r => r.status === ReferralStatus.ACKNOWLEDGED).length,
+  }), [paginatedItems, totalItems]);
 
   const getPriorityUI = (category: string) => {
     switch(category) {
@@ -250,7 +301,13 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({ clients, partne
 
       {/* Data Table SLDS */}
       <div className="slds-card overflow-hidden">
-        <div className="overflow-x-auto">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+            <Loader2 className="w-10 h-10 animate-spin mb-4 text-slds-brand" />
+            <p className="text-sm font-medium">Chargement des référencements...</p>
+          </div>
+        ) : paginatedItems.length > 0 ? (
+          <div className="overflow-x-auto">
           <table className="slds-table">
             <thead>
               <tr>
@@ -264,16 +321,20 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({ clients, partne
               </tr>
             </thead>
             <tbody>
-              {filteredData.map((item) => {
+              {paginatedItems.map((item) => {
                 const priorityUI = getPriorityUI(item.priority);
                 const isWaiting = !item.assignedPartnerId;
                 
                 return (
-                  <tr key={item.id} className="hover:bg-slds-bg transition-colors group cursor-pointer">
+                  <tr 
+                    key={item.id} 
+                    className="hover:bg-slds-bg transition-colors group cursor-pointer"
+                    onClick={() => onSelectClient(item)}
+                  >
                     <td>
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded bg-slds-bg text-slds-text-secondary flex items-center justify-center text-[10px] font-bold border border-slds-border">
-                          {item.firstName[0]}{item.lastName[0]}
+                        <div className="w-8 h-8 rounded bg-slds-bg text-slds-text-secondary flex items-center justify-center font-bold text-[10px] group-hover:bg-slds-brand group-hover:text-white transition-colors">
+                          {item.firstName?.[0] || '?'}{item.lastName?.[0] || '?'}
                         </div>
                         <div>
                           <p className="text-xs font-bold text-slds-brand">{item.firstName} {item.lastName}</p>
@@ -332,7 +393,7 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({ clients, partne
                   </tr>
                 );
               })}
-              {filteredData.length === 0 && (
+              {paginatedItems.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-12 text-center">
                     <FileSearch size={48} className="mx-auto text-slds-border mb-3" />
@@ -343,6 +404,22 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({ clients, partne
             </tbody>
           </table>
         </div>
+        ) : (
+          <div className="py-20 text-center bg-white rounded border border-dashed border-slds-border">
+            <Database size={48} className="mx-auto text-slds-border mb-3" />
+            <p className="text-xs font-bold text-slds-text-secondary uppercase tracking-widest">Aucun référencement trouvé</p>
+          </div>
+        )}
+
+        {/* Pagination UI */}
+        <Pagination 
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          totalItems={totalItems}
+          itemsPerPage={itemsPerPage}
+          label="référencements"
+        />
       </div>
     </div>
   );

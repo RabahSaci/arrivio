@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { apiService } from '../services/apiService';
 import { Profile, Message, Conversation, Partner } from '../types';
-import { Search, Send, User, MessageSquare, Loader2, ArrowLeft, Building2, Briefcase } from 'lucide-react';
+import { Search, Send, User, MessageSquare, Loader2, ArrowLeft, Building2, Briefcase, CheckCheck } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -33,7 +33,7 @@ const Messaging: React.FC<MessagingProps> = ({ currentUserId, partners }) => {
       if (activeConversation) {
         fetchMessages(activeConversation.otherParticipant.id);
       }
-    }, 10000);
+    }, 4000);
 
     return () => clearInterval(interval);
   }, [activeConversation?.otherParticipant.id, currentUserId]);
@@ -58,39 +58,27 @@ const Messaging: React.FC<MessagingProps> = ({ currentUserId, partners }) => {
       const msgsRaw = await apiService.fetchTable('messages');
       // fetchTable on backend is already filtered by currentUserId via RLS and proxy token
       
-      const msgs: Message[] = (msgsRaw || []).map((m: any) => ({
-        id: m.id,
-        senderId: m.sender_id,
-        receiverId: m.receiver_id,
-        content: m.content,
-        timestamp: m.timestamp,
-        isRead: m.is_read
-      }));
+      const msgs: Message[] = (msgsRaw || [])
+        .filter((m: any) => m.senderId === currentUserId || m.receiverId === currentUserId);
 
       const convMap = new Map<string, Conversation>();
       
-      for (const msg of msgs) {
+      // We sort messages by timestamp descending to pick the last message for each conversation
+      const sortedMsgs = [...msgs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+      for (const msg of sortedMsgs) {
         const otherId = msg.senderId === currentUserId ? msg.receiverId : msg.senderId;
         if (!convMap.has(otherId)) {
-          // Ideally profiles should also be fetched via a more efficient proxy route
           const profilesRaw = await apiService.fetchTable('profiles');
           const profileRaw = Array.isArray(profilesRaw) ? profilesRaw.find(p => p.id === otherId) : null;
           
           if (profileRaw) {
-            const profile: Profile = {
-              id: profileRaw.id,
-              firstName: profileRaw.first_name,
-              lastName: profileRaw.last_name,
-              email: profileRaw.email,
-              role: profileRaw.role,
-              partnerId: profileRaw.partner_id,
-              position: profileRaw.position
-            };
+            const profile: Profile = profileRaw;
 
             convMap.set(otherId, {
               otherParticipant: profile,
               lastMessage: msg,
-              unreadCount: msgs.filter(m => m.senderId === otherId && !m.isRead).length
+              unreadCount: msgs.filter(m => m.senderId === otherId && m.receiverId === currentUserId && !m.isRead).length
             });
           }
         }
@@ -110,17 +98,9 @@ const Messaging: React.FC<MessagingProps> = ({ currentUserId, partners }) => {
       // The proxy/RLS handles visibility. We filter locally for this specific conversation.
       const msgs: Message[] = (msgsRaw || [])
         .filter((m: any) => 
-          (m.sender_id === currentUserId && m.receiver_id === otherId) ||
-          (m.sender_id === otherId && m.receiver_id === currentUserId)
+          (m.senderId === currentUserId && m.receiverId === otherId) ||
+          (m.senderId === otherId && m.receiverId === currentUserId)
         )
-        .map((m: any) => ({
-          id: m.id,
-          senderId: m.sender_id,
-          receiverId: m.receiver_id,
-          content: m.content,
-          timestamp: m.timestamp,
-          isRead: m.is_read
-        }))
         .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
       setMessages(msgs);
@@ -131,12 +111,34 @@ const Messaging: React.FC<MessagingProps> = ({ currentUserId, partners }) => {
 
   const markAsRead = async (otherId: string) => {
     try {
-      // Proxy update (Note: we should ideally have exact IDs of messages to update)
-      // For simplicity in proxy, we update all where sender is otherId
-      // We rely on backend update logic
-      // In a real app, we'd send the exact IDs
-      // await apiService.update('messages', ...) 
-    } catch (err) {
+      fetch('/api/log', { method: 'POST', body: JSON.stringify({ event: 'markAsRead_start', otherId, currentUserId }), headers:{'Content-Type':'application/json'} });
+      
+      const res = await apiService.markMessagesAsRead(otherId);
+      
+      fetch('/api/log', { method: 'POST', body: JSON.stringify({ event: 'markAsRead_success', res }), headers:{'Content-Type':'application/json'} });
+      
+      // Update local state to immediately clear notification
+      setConversations(prev => prev.map(conv => {
+        if (conv.otherParticipant.id === otherId) {
+          return { ...conv, unreadCount: 0 };
+        }
+        return conv;
+      }));
+
+      // Also update messages in view if needed
+      setMessages(prev => prev.map(m => {
+        if (m.senderId === otherId && !m.isRead) {
+          return { ...m, isRead: true };
+        }
+        return m;
+      }));
+
+      // Notify global layout to refresh the unread badge after a slight delay
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('message_read'));
+      }, 500);
+    } catch (err: any) {
+      fetch('/api/log', { method: 'POST', body: JSON.stringify({ event: 'markAsRead_error', error: err.message }), headers:{'Content-Type':'application/json'} });
       console.error('Error marking as read:', err);
     }
   };
@@ -153,20 +155,11 @@ const Messaging: React.FC<MessagingProps> = ({ currentUserId, partners }) => {
       const profiles: Profile[] = (profilesRaw || [])
         .filter((p: any) => 
           p.id !== currentUserId && 
-          (p.first_name.toLowerCase().includes(val.toLowerCase()) || 
-           p.last_name.toLowerCase().includes(val.toLowerCase()) || 
-           p.email.toLowerCase().includes(val.toLowerCase()))
+          (p.firstName?.toLowerCase().includes(val.toLowerCase()) || 
+           p.lastName?.toLowerCase().includes(val.toLowerCase()) || 
+           p.email?.toLowerCase().includes(val.toLowerCase()))
         )
-        .slice(0, 5)
-        .map((p: any) => ({
-          id: p.id,
-          firstName: p.first_name,
-          lastName: p.last_name,
-          email: p.email,
-          role: p.role,
-          partnerId: p.partner_id,
-          position: p.position
-        }));
+        .slice(0, 5);
 
       setSearchResults(profiles);
     } catch (err) {
@@ -387,9 +380,16 @@ const Messaging: React.FC<MessagingProps> = ({ currentUserId, partners }) => {
                     <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[70%] p-3 rounded-2xl text-xs font-medium shadow-sm ${isMe ? 'bg-slds-brand text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-100 rounded-tl-none'}`}>
                         <p className="leading-relaxed">{msg.content}</p>
-                        <p className={`text-[8px] mt-1.5 font-bold uppercase tracking-widest ${isMe ? 'text-white/60 text-right' : 'text-slate-400'}`}>
-                          {format(new Date(msg.timestamp), 'HH:mm')}
-                        </p>
+                        <div className="flex items-center justify-end gap-1 mt-1.5">
+                          <p className={`text-[8px] font-bold uppercase tracking-widest ${isMe ? 'text-white/60' : 'text-slate-400'}`}>
+                            {format(new Date(msg.timestamp), 'HH:mm')}
+                          </p>
+                          {isMe && (
+                            <div className={msg.isRead ? 'text-emerald-300' : 'text-white/30'}>
+                              <CheckCheck size={10} />
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </React.Fragment>

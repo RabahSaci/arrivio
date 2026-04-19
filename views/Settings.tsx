@@ -19,8 +19,8 @@ const Settings: React.FC = () => {
       const data = await apiService.fetchTable('app_settings');
       const settings = Array.isArray(data) ? data[0] : data;
       if (settings) {
-        if (settings.logo_url) setLogoUrl(settings.logo_url);
-        if (settings.login_photo_url) setLoginPhotoUrl(settings.login_photo_url);
+        if (settings.logoUrl) setLogoUrl(settings.logoUrl);
+        if (settings.loginPhotoUrl) setLoginPhotoUrl(settings.loginPhotoUrl);
       }
     } catch (err) {
       console.warn("La table app_settings n'existe peut-être pas encore.", err);
@@ -45,8 +45,8 @@ const Settings: React.FC = () => {
 
       // 2. Save settings via Proxy
       const updateData: any = { id: 1 };
-      if (type === 'logo') updateData.logo_url = publicUrl;
-      else updateData.login_photo_url = publicUrl;
+      if (type === 'logo') updateData.logoUrl = publicUrl;
+      else updateData.loginPhotoUrl = publicUrl;
 
       await apiService.update('app_settings', 1, updateData);
 

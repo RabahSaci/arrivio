@@ -156,7 +156,7 @@ const AccountManagement: React.FC<AccountManagementProps> = ({ profiles, partner
           <div key={profile.id} className="slds-card p-4 hover:bg-slds-bg transition-colors group flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <div className="w-10 h-10 rounded bg-slds-bg text-slds-text-secondary flex items-center justify-center font-bold text-sm group-hover:bg-slds-brand group-hover:text-white transition-colors">
-                {profile.firstName[0]}{profile.lastName[0]}
+                {profile.firstName?.[0] || '?'}{profile.lastName?.[0] || '?'}
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-bold text-slds-text-primary truncate">{profile.firstName} {profile.lastName}</p>

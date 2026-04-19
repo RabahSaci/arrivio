@@ -1,6 +1,7 @@
-
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { UserActivityLog, UserRole, Client } from '../types';
+import Pagination from '../components/Pagination';
+import { apiService } from '../services/apiService';
 import { 
   History, 
   Shield, 
@@ -26,6 +27,7 @@ import {
   CalendarRange,
   ChevronDown,
   ChevronUp,
+  Loader2
 } from 'lucide-react';
 
 interface ActivityLogsProps {
@@ -36,22 +38,35 @@ interface ActivityLogsProps {
 }
 
 const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, clients, activeRole, currentUserId }) => {
+  const isAdmin = activeRole === UserRole.ADMIN;
+
   const [filterUser, setFilterUser] = useState<string>('ALL');
   const [filterAction, setFilterAction] = useState<string>('ALL');
   const [filterEntity, setFilterEntity] = useState<string>('ALL');
-  const [filterClient, setFilterClient] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [showStats, setShowStats] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
 
-  const isAdmin = activeRole === UserRole.ADMIN;
+  // Extraction des valeurs de filtres uniques depuis les props
+  const uniqueUsers = useMemo(() => {
+    const users = new Map();
+    logs.forEach(log => {
+      if (log.userId) users.set(log.userId, log.userName);
+    });
+    return Array.from(users.entries()).map(([id, name]) => ({ id, name }));
+  }, [logs]);
 
-  // Extract client name from log details by cross-referencing client list
+  const uniqueEntities = useMemo(() => {
+    return Array.from(new Set(logs.map(log => log.entityType))).filter(Boolean).sort();
+  }, [logs]);
+
+  // Recherche de client dans les détails du log
   const getClientFromLog = (log: UserActivityLog): Client | null => {
-    const detailsLower = log.details.toLowerCase();
-    // Check all clients to see if their name appears in the log details
+    const detailsLower = log.details?.toLowerCase() || '';
+    if (!detailsLower) return null;
+
     for (const client of clients) {
       const fullName = `${client.firstName} ${client.lastName}`.toLowerCase();
       if (fullName.length > 3 && detailsLower.includes(fullName)) {
@@ -61,50 +76,40 @@ const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, clients, activeRole, 
     return null;
   };
 
-  const uniqueUsers = useMemo(() => {
-    const users = new Map();
-    logs.forEach(log => {
-      if (isAdmin || log.userId === currentUserId) {
-        users.set(log.userId, log.userName);
-      }
-    });
-    return Array.from(users.entries()).map(([id, name]) => ({ id, name }));
-  }, [logs, isAdmin, currentUserId]);
-
-  const uniqueEntities = useMemo(() => {
-    const entities = new Set<string>();
-    logs.forEach(log => entities.add(log.entityType));
-    return Array.from(entities).sort();
-  }, [logs]);
-
   const filteredLogs = useMemo(() => {
-    return logs
-      .filter(log => {
-        const hasAccess = isAdmin || log.userId === currentUserId;
-        const matchUser = filterUser === 'ALL' || log.userId === filterUser;
-        const matchAction = filterAction === 'ALL' || log.actionType === filterAction;
-        const matchEntity = filterEntity === 'ALL' || log.entityType === filterEntity;
-        const matchSearch = searchTerm === '' || 
-          log.details.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          log.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          log.entityType.toLowerCase().includes(searchTerm.toLowerCase());
+    return logs.filter(log => {
+      if (filterUser !== 'ALL' && log.userId !== filterUser) return false;
+      if (filterAction !== 'ALL' && log.actionType !== filterAction) return false;
+      if (filterEntity !== 'ALL' && log.entityType !== filterEntity) return false;
+      
+      if (searchTerm) {
+        const query = searchTerm.toLowerCase();
+        if (!(
+          log.userName?.toLowerCase().includes(query) ||
+          log.details?.toLowerCase().includes(query) ||
+          log.actionType?.toLowerCase().includes(query) ||
+          log.entityType?.toLowerCase().includes(query)
+        )) return false;
+      }
 
-        const logDate = new Date(log.timestamp);
-        const matchFrom = !dateFrom || logDate >= new Date(dateFrom);
-        const matchTo = !dateTo || logDate <= new Date(dateTo + 'T23:59:59');
+      const logDate = log.timestamp.split('T')[0];
+      if (dateFrom && logDate < dateFrom) return false;
+      if (dateTo && logDate > dateTo) return false;
 
-        // Client name filter
-        const matchClient = filterClient === '' || (() => {
-          const client = getClientFromLog(log);
-          return client ? `${client.firstName} ${client.lastName}`.toLowerCase().includes(filterClient.toLowerCase()) : false;
-        })();
+      return true;
+    }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [logs, filterUser, filterAction, filterEntity, searchTerm, dateFrom, dateTo]);
 
-        return hasAccess && matchUser && matchAction && matchEntity && matchSearch && matchFrom && matchTo && matchClient;
-      })
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [logs, isAdmin, currentUserId, filterUser, filterAction, filterEntity, searchTerm, dateFrom, dateTo]);
+  const totalItems = filteredLogs.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
 
-  // Statistics
+  const paginatedLogs = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredLogs.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredLogs, currentPage, itemsPerPage]);
+
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   const stats = useMemo(() => {
     const actionCounts: Record<string, number> = {};
     const userCounts: Record<string, { name: string; count: number }> = {};
@@ -112,7 +117,7 @@ const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, clients, activeRole, 
     const today = new Date().toDateString();
     let todayCount = 0;
 
-    filteredLogs.forEach(log => {
+    filteredLogs.slice(0, 100).forEach(log => {
       actionCounts[log.actionType] = (actionCounts[log.actionType] || 0) + 1;
       if (!userCounts[log.userId]) userCounts[log.userId] = { name: log.userName, count: 0 };
       userCounts[log.userId].count++;
@@ -137,7 +142,7 @@ const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, clients, activeRole, 
         log.actionType,
         log.entityType,
         client ? `${client.firstName} ${client.lastName}` : '',
-        `"${log.details.replace(/"/g, '""')}"`
+        `"${(log.details || '').replace(/"/g, '""')}"`
       ];
     });
 
@@ -157,6 +162,7 @@ const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, clients, activeRole, 
       case 'UPDATE': return { color: 'bg-blue-50 text-blue-600 border-blue-100', bar: 'bg-blue-500', icon: <RefreshCcw size={12} />, label: 'Modification' };
       case 'DELETE': return { color: 'bg-red-50 text-red-600 border-red-100', bar: 'bg-red-500', icon: <Trash2 size={12} />, label: 'Suppression' };
       case 'LOGIN': return { color: 'bg-purple-50 text-purple-600 border-purple-100', bar: 'bg-purple-500', icon: <LogIn size={12} />, label: 'Connexion' };
+      case 'SECURITY_ALERT': return { color: 'bg-red-600 text-white border-red-700', bar: 'bg-red-600', icon: <AlertTriangle size={12} />, label: 'ALERTE SÉCURITÉ' };
       default: return { color: 'bg-slate-50 text-slate-600 border-slate-100', bar: 'bg-slate-400', icon: <History size={12} />, label: type };
     }
   };
@@ -167,149 +173,65 @@ const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, clients, activeRole, 
       case 'SESSION': return <Calendar size={15} className="text-emerald-500" />;
       case 'MENTOR': return <Award size={15} className="text-amber-500" />;
       case 'CONTRACT': return <FileText size={15} className="text-indigo-500" />;
-      case 'PROFILE': return <ShieldCheck size={15} className="text-red-500" />;
       case 'PARTNER': return <Building2 size={15} className="text-purple-500" />;
-      default: return <History size={15} className="text-slate-400" />;
+      case 'PROFILE': return <Shield size={15} className="text-rose-500" />;
+      default: return <Activity size={15} className="text-slate-500" />;
     }
   };
 
-  const resetFilters = () => {
-    setFilterUser('ALL');
-    setFilterAction('ALL');
-    setFilterEntity('ALL');
-    setFilterClient('');
-    setSearchTerm('');
-    setDateFrom('');
-    setDateTo('');
-  };
-
-  const hasActiveFilters = filterUser !== 'ALL' || filterAction !== 'ALL' || filterEntity !== 'ALL' || filterClient !== '' || searchTerm !== '' || dateFrom !== '' || dateTo !== '';
-
   return (
     <div className="space-y-6">
-
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="p-3 bg-gradient-to-br from-slate-800 to-slate-900 text-white rounded-2xl shadow-lg shadow-slate-200">
-            <Shield size={24} />
-          </div>
-          <div>
-            <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-              {isAdmin ? 'Audit & Traçabilité' : 'Mon Historique d\'Activité'}
-            </h2>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-              {filteredLogs.length} événement{filteredLogs.length > 1 ? 's' : ''} — {isAdmin ? 'Historique complet' : 'Vos actions personnelles'}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          {isAdmin && (
-            <span className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl text-[10px] font-black uppercase tracking-wider">
-              <ShieldCheck size={12} /> Super-Vision Admin
-            </span>
-          )}
-          <button
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-700 transition-all shadow-lg"
-          >
-            <Download size={14} /> Exporter CSV
-          </button>
-        </div>
-      </div>
-
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="slds-card p-5">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Aujourd'hui</p>
-              <p className="text-3xl font-black text-slate-900">{stats.todayCount}</p>
-            </div>
-            <div className="p-2 bg-blue-50 rounded-xl">
-              <Activity size={20} className="text-blue-500" />
-            </div>
-          </div>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="slds-card p-4">
+          <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Événements</p>
+          <p className="text-2xl font-bold text-slate-700">{totalItems}</p>
         </div>
-        <div className="slds-card p-5">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Créations</p>
-              <p className="text-3xl font-black text-emerald-600">{stats.actionCounts['CREATE'] || 0}</p>
-            </div>
-            <div className="p-2 bg-emerald-50 rounded-xl">
-              <PlusCircle size={20} className="text-emerald-500" />
-            </div>
-          </div>
+        <div className="slds-card p-4 border-l-4 border-l-emerald-500">
+          <p className="text-[10px] font-bold text-emerald-600 uppercase mb-1">Aujourd'hui</p>
+          <p className="text-2xl font-bold text-slate-700">{stats.todayCount}</p>
         </div>
-        <div className="slds-card p-5">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Modifications</p>
-              <p className="text-3xl font-black text-blue-600">{stats.actionCounts['UPDATE'] || 0}</p>
-            </div>
-            <div className="p-2 bg-blue-50 rounded-xl">
-              <RefreshCcw size={20} className="text-blue-500" />
-            </div>
-          </div>
+        <div className="slds-card p-4 border-l-4 border-l-blue-500">
+          <p className="text-[10px] font-bold text-blue-600 uppercase mb-1">Top Utilisateur</p>
+          <p className="text-sm font-bold text-slate-700 truncate">{stats.topUser?.name || 'N/A'}</p>
         </div>
-        <div className="slds-card p-5">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Suppressions</p>
-              <p className="text-3xl font-black text-red-600">{stats.actionCounts['DELETE'] || 0}</p>
-            </div>
-            <div className="p-2 bg-red-50 rounded-xl">
-              <AlertTriangle size={20} className="text-red-500" />
-            </div>
-          </div>
+        <div className="slds-card p-4 border-l-4 border-l-purple-500">
+          <p className="text-[10px] font-bold text-purple-600 uppercase mb-1">Ressource Critique</p>
+          <p className="text-sm font-bold text-slate-700 uppercase">{stats.topEntity?.[0] || 'N/A'}</p>
         </div>
       </div>
 
       {/* Filters */}
       <div className="slds-card p-4 space-y-4">
-        {/* Search */}
-        <div className="flex flex-col md:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Rechercher dans les détails, nom d'utilisateur..."
-              className="slds-input pl-10 w-full"
+        <div className="flex flex-wrap gap-4 items-center">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="Rechercher dans les logs..."
+              className="slds-input pl-10 h-9"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
             />
           </div>
-          {hasActiveFilters && (
-            <button onClick={resetFilters} className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 border border-red-100 rounded-xl text-[10px] font-black uppercase hover:bg-red-100 transition-colors">
-              <X size={14} /> Réinitialiser
-            </button>
-          )}
-        </div>
-
-        {/* Filter Row */}
-        <div className="flex flex-wrap gap-3 items-center">
-          <div className="flex items-center gap-2 text-[10px] text-slate-400 font-black uppercase">
-            <Filter size={12} /> Filtres :
-          </div>
-
-          <select value={filterAction} onChange={e => setFilterAction(e.target.value)} className="slds-input slds-input-compact w-auto">
+          
+          <select value={filterAction} onChange={e => setFilterAction(e.target.value)} className="slds-input w-auto h-9">
             <option value="ALL">Toutes les actions</option>
-            <option value="CREATE">Création</option>
-            <option value="UPDATE">Modification</option>
-            <option value="DELETE">Suppression</option>
-            <option value="LOGIN">Connexion</option>
+            <option value="CREATE">Créations</option>
+            <option value="UPDATE">Modifications</option>
+            <option value="DELETE">Suppressions</option>
+            <option value="LOGIN">Connexions</option>
           </select>
 
-          <select value={filterEntity} onChange={e => setFilterEntity(e.target.value)} className="slds-input slds-input-compact w-auto">
-            <option value="ALL">Tous les modules</option>
-            {uniqueEntities.map(e => (
-              <option key={e} value={e}>{e}</option>
+          <select value={filterEntity} onChange={e => setFilterEntity(e.target.value)} className="slds-input w-auto h-9">
+            <option value="ALL">Tous les types</option>
+            {uniqueEntities.map(ent => (
+              <option key={ent} value={ent}>{ent}</option>
             ))}
           </select>
 
           {isAdmin && (
-            <select value={filterUser} onChange={e => setFilterUser(e.target.value)} className="slds-input slds-input-compact w-auto">
+            <select value={filterUser} onChange={e => setFilterUser(e.target.value)} className="slds-input w-auto h-9">
               <option value="ALL">Tous les utilisateurs</option>
               {uniqueUsers.map(u => (
                 <option key={u.id} value={u.id}>{u.name}</option>
@@ -317,147 +239,137 @@ const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, clients, activeRole, 
             </select>
           )}
 
-          {/* Client name search filter */}
-          <div className="relative">
-            <Users size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Filtrer par client..."
-              value={filterClient}
-              onChange={e => setFilterClient(e.target.value)}
-              className="slds-input slds-input-compact pl-8 w-44"
-            />
+          <div className="flex items-center gap-2">
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="slds-input w-36 h-9" />
+            <span className="text-slate-400">→</span>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="slds-input w-36 h-9" />
           </div>
 
-          <div className="flex items-center gap-2 ml-auto">
-            <CalendarRange size={14} className="text-slate-400" />
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={e => setDateFrom(e.target.value)}
-              className="slds-input slds-input-compact w-auto"
-              title="Du"
-            />
-            <span className="text-slate-400 text-xs font-bold">→</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={e => setDateTo(e.target.value)}
-              className="slds-input slds-input-compact w-auto"
-              title="Au"
-            />
-          </div>
+          {(searchTerm || filterAction !== 'ALL' || filterEntity !== 'ALL' || filterUser !== 'ALL' || dateFrom || dateTo) && (
+            <button 
+              onClick={() => { setSearchTerm(''); setFilterAction('ALL'); setFilterEntity('ALL'); setFilterUser('ALL'); setDateFrom(''); setDateTo(''); }}
+              className="text-[10px] font-bold text-slds-brand uppercase hover:underline"
+            >
+              Réinitialiser
+            </button>
+          )}
         </div>
       </div>
 
       {/* Table */}
       <div className="slds-card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="slds-table">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                <th className="p-4 text-left">Horodatage</th>
-                {isAdmin && <th className="p-4 text-left">Utilisateur</th>}
-                <th className="p-4 text-left">Action</th>
-                <th className="p-4 text-left">Module</th>
-                <th className="p-4 text-left">Description</th>
-                <th className="p-4 text-left">Client</th>
-                <th className="p-4 text-center">Détails</th>
+              <tr>
+                <th>Utilisateur</th>
+                <th>Action</th>
+                <th>Module</th>
+                <th>Date & Heure</th>
+                <th>Client</th>
+                <th>Détails</th>
+                <th></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
-              {filteredLogs.map(log => {
+            <tbody>
+              {paginatedLogs.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-20 text-center text-slate-400 italic">
+                    Aucun événement trouvé pour ces critères.
+                  </td>
+                </tr>
+              ) : paginatedLogs.map(log => {
                 const actionUI = getActionUI(log.actionType);
+                const client = getClientFromLog(log);
                 const isExpanded = expandedId === log.id;
-                const matchedClient = getClientFromLog(log);
+                
                 return (
                   <React.Fragment key={log.id}>
                     <tr 
-                      className="hover:bg-slate-50/70 transition-colors group cursor-pointer"
+                      className={`hover:bg-slds-bg cursor-pointer transition-colors group ${isExpanded ? 'bg-slds-bg' : ''}`}
                       onClick={() => setExpandedId(isExpanded ? null : log.id)}
                     >
-                      <td className="p-4">
-                        <div className={`w-1 h-10 ${actionUI.bar} rounded-full absolute -ml-4 opacity-0 group-hover:opacity-100 transition-opacity`} />
-                        <div className="flex items-center gap-2">
-                          <Clock size={13} className="text-slate-300 group-hover:text-slds-brand transition-colors shrink-0" />
-                          <div>
-                            <p className="text-xs font-bold text-slate-700">{new Date(log.timestamp).toLocaleDateString('fr-FR')}</p>
-                            <p className="text-[10px] text-slate-400 font-mono">{new Date(log.timestamp).toLocaleTimeString('fr-FR')}</p>
+                      <td>
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded bg-white text-slds-text-secondary flex items-center justify-center font-bold text-[10px] border border-slds-border group-hover:bg-slds-brand group-hover:text-white transition-colors">
+                            {log.userName?.[0] || '?'}{log.userName?.split(' ')[1]?.[0] || ''}
                           </div>
+                          <span className="text-xs font-bold text-slds-text-primary">{log.userName}</span>
                         </div>
                       </td>
-                      {isAdmin && (
-                        <td className="p-4">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-xs font-black text-slate-500 group-hover:bg-slds-brand group-hover:text-white transition-colors shrink-0">
-                              {log.userName?.charAt(0)?.toUpperCase()}
-                            </div>
-                            <span className="text-xs font-bold text-slate-700 truncate max-w-[120px]">{log.userName}</span>
-                          </div>
-                        </td>
-                      )}
-                      <td className="p-4">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[10px] font-black uppercase ${actionUI.color}`}>
+                      <td>
+                        <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[9px] font-bold uppercase border ${actionUI.color}`}>
                           {actionUI.icon}
                           {actionUI.label}
-                        </span>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-2">
-                          <div className="p-1.5 bg-white border border-slate-100 rounded-lg shadow-sm">
-                            {getEntityIcon(log.entityType)}
-                          </div>
-                          <span className="text-[10px] font-black text-slate-500 uppercase">{log.entityType}</span>
                         </div>
                       </td>
-                      <td className="p-4 max-w-xs">
-                        <p className="text-xs text-slate-600 leading-relaxed line-clamp-2">{log.details}</p>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          {getEntityIcon(log.entityType)}
+                          <span className="text-[10px] font-bold text-slds-text-secondary uppercase">{log.entityType}</span>
+                        </div>
                       </td>
-                      <td className="p-4">
-                        {matchedClient ? (
-                          <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center text-[10px] font-black text-blue-500 shrink-0">
-                              {matchedClient.firstName.charAt(0)}{matchedClient.lastName.charAt(0)}
-                            </div>
-                            <div>
-                              <p className="text-xs font-bold text-slate-700 whitespace-nowrap">{matchedClient.firstName} {matchedClient.lastName}</p>
-                              {matchedClient.clientCode && (
-                                <p className="text-[10px] text-slate-400 font-mono">{matchedClient.clientCode}</p>
-                              )}
-                            </div>
-                          </div>
+                      <td>
+                        <div className="text-xs text-slds-text-primary font-medium">
+                          {new Date(log.timestamp).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                          <span className="text-slds-text-secondary ml-1.5 text-[10px]">{new Date(log.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                      </td>
+                      <td>
+                        {client ? (
+                           <div className="flex items-center gap-2">
+                             <div className="w-5 h-5 rounded bg-blue-50 text-blue-600 flex items-center justify-center text-[8px] font-black border border-blue-100">
+                               {client.firstName?.[0] || '?'}{client.lastName?.[0] || '?'}
+                             </div>
+                             <span className="text-[11px] font-bold text-slds-text-primary truncate max-w-[120px]">{client.firstName} {client.lastName}</span>
+                           </div>
                         ) : (
-                          <span className="text-[10px] text-slate-300 italic">—</span>
+                          <span className="text-[10px] text-slds-text-secondary italic">—</span>
                         )}
                       </td>
-                      <td className="p-4 text-center">
-                        <button className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
-                          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      <td className="max-w-xs">
+                        <p className="text-xs text-slds-text-secondary truncate font-medium">{log.details}</p>
+                      </td>
+                      <td className="text-right">
+                        <button className="p-1 text-slds-text-secondary hover:text-slds-brand transition-colors">
+                          {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                         </button>
                       </td>
                     </tr>
                     {isExpanded && (
-                      <tr className="bg-slate-50/50 border-b border-slate-100">
-                        <td colSpan={isAdmin ? 7 : 6} className="px-8 py-4">
-                          <div className="bg-white border border-slate-100 rounded-2xl p-5 space-y-3 shadow-sm">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Détails complets de l'événement</p>
-                            <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">ID de l'événement</p>
-                                <p className="text-xs font-mono text-slate-600 break-all">{log.id}</p>
+                      <tr className="bg-slds-bg shadow-inner">
+                        <td colSpan={7} className="p-4 border-l-4 border-l-slds-brand">
+                          <div className="space-y-4">
+                            <div className="flex justify-between items-start">
+                              <div className="space-y-1">
+                                <p className="text-[10px] font-black text-slds-text-secondary uppercase tracking-widest">Description complète</p>
+                                <p className="text-sm font-semibold text-slds-text-primary leading-relaxed bg-white p-3 rounded border border-slds-border">{log.details}</p>
                               </div>
-                              <div>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">ID de l'utilisateur</p>
-                                <p className="text-xs font-mono text-slate-600 break-all">{log.userId}</p>
+                              <div className="text-right">
+                                <p className="text-[10px] font-black text-slate-400 uppercase mb-1">ID Événement</p>
+                                <p className="text-[10px] font-mono text-slate-300">{log.id}</p>
                               </div>
-                              <div className="col-span-2">
-                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Description complète</p>
-                                <p className="text-sm text-slate-700 leading-relaxed">{log.details}</p>
-                              </div>
-                              <div>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Horodatage ISO</p>
-                                <p className="text-xs font-mono text-slate-600">{log.timestamp}</p>
-                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 pt-4 border-t border-slds-border/50">
+                               <div>
+                                  <p className="text-[10px] font-bold text-slds-text-secondary uppercase mb-1">Impact Système</p>
+                                  <div className="flex items-center gap-2">
+                                    <ShieldCheck size={14} className="text-slds-success" />
+                                    <span className="text-[11px] font-bold text-slds-text-primary">Journal d'Audit Persistant</span>
+                                  </div>
+                               </div>
+                               <div>
+                                  <p className="text-[10px] font-bold text-slds-text-secondary uppercase mb-1">Utilisateur ID</p>
+                                  <p className="text-[10px] font-mono text-slds-text-secondary">{log.userId}</p>
+                               </div>
+                               <div>
+                                  <p className="text-[10px] font-bold text-slds-text-secondary uppercase mb-1">Module</p>
+                                  <p className="text-[10px] font-bold text-slds-text-primary">{log.entityType}</p>
+                               </div>
+                               <div>
+                                  <p className="text-[10px] font-bold text-slds-text-secondary uppercase mb-1">Exportation</p>
+                                  <button onClick={handleExportCSV} className="text-[10px] font-bold text-slds-brand uppercase hover:underline">Exporter (.csv)</button>
+                               </div>
                             </div>
                           </div>
                         </td>
@@ -466,26 +378,22 @@ const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, clients, activeRole, 
                   </React.Fragment>
                 );
               })}
-              {filteredLogs.length === 0 && (
-                <tr>
-                  <td colSpan={isAdmin ? 7 : 6} className="p-16 text-center">
-                    <History size={48} className="mx-auto text-slate-200 mb-4" />
-                    <p className="text-slate-400 font-black text-sm uppercase tracking-widest">Aucun événement trouvé</p>
-                    <p className="text-slate-300 text-xs mt-2">Modifiez vos filtres pour afficher des résultats</p>
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
-        {filteredLogs.length > 0 && (
-          <div className="p-4 border-t border-slate-50 flex justify-between items-center">
-            <p className="text-[10px] text-slate-400 font-bold uppercase">{filteredLogs.length} événement{filteredLogs.length > 1 ? 's' : ''} affiché{filteredLogs.length > 1 ? 's' : ''}</p>
-            <button onClick={handleExportCSV} className="flex items-center gap-2 text-[10px] font-black text-slds-brand uppercase hover:underline">
-              <Download size={12} /> Exporter ce résultat
-            </button>
-          </div>
-        )}
+
+        {/* Pagination SLDS */}
+        <div className="p-4 border-t border-slds-border flex justify-between items-center bg-slds-bg/50">
+          <p className="text-[10px] text-slate-400 font-bold uppercase">{totalItems} événement{totalItems > 1 ? 's' : ''} au total</p>
+          <Pagination 
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            totalItems={totalItems}
+            itemsPerPage={itemsPerPage}
+            label="événements"
+          />
+        </div>
       </div>
     </div>
   );

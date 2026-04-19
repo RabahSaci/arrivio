@@ -107,8 +107,8 @@ const ActivityMatching: React.FC<ActivityMatchingProps> = ({ clients, onSelectCl
                   <div key={client.id} className="slds-card p-4 hover:border-purple-600 transition-all group">
                     <div className="flex justify-between items-start mb-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded bg-slds-bg text-slds-text-secondary flex items-center justify-center font-bold border border-slds-border">
-                          {client.firstName[0]}{client.lastName[0]}
+                        <div className="w-8 h-8 rounded bg-slds-bg text-slds-text-primary flex items-center justify-center font-bold text-xs ring-1 ring-inset ring-slds-border shrink-0">
+                          {client.firstName?.[0] || '?'}{client.lastName?.[0] || '?'}
                         </div>
                         <div>
                           <h4 className="text-sm font-bold text-slds-text-primary">{client.firstName} {client.lastName}</h4>

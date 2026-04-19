@@ -133,22 +133,22 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, partners, sessions, acti
       if (c.destinationCity) cities[c.destinationCity] = (cities[c.destinationCity] || 0) + 1;
     });
 
-    const formatData = (source: Record<string, number>, limit = 5) => {
+      const formatData = (source: Record<string, number>, limit = 5) => {
       const sorted = Object.entries(source)
-        .map(([name, value]) => ({ name, value, percent: Math.round((value / total) * 100) }))
+        .map(([name, value]) => ({ name, value, percentage: Math.round((value / total) * 100) }))
         .sort((a, b) => b.value - a.value);
       
       const top = sorted.slice(0, limit);
       const othersVal = sorted.slice(limit).reduce((acc, curr) => acc + curr.value, 0);
       
       if (othersVal > 0) {
-        top.push({ name: 'Autres', value: othersVal, percent: Math.round((othersVal / total) * 100) });
+        top.push({ name: 'Autres', value: othersVal, percentage: Math.round((othersVal / total) * 100) });
       }
       
       // Ajout d'un label pré-formaté pour éviter les erreurs d'accès dans les formatters
       return top.map(item => ({
         ...item,
-        fullLabel: `${item.value} (${item.percent}%)`
+        fullLabel: `${item.value} (${item.percentage}%)`
       }));
     };
 
@@ -272,6 +272,99 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, partners, sessions, acti
         </div>
       </div>
 
+      {/* Démographie */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Pays d'origine */}
+        <div className="slds-card p-6">
+          <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-[#54698d] text-white rounded">
+                <Globe size={20} />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slds-text-primary text-base">Pays d'Origine</h3>
+                <p className="text-[10px] text-slds-text-secondary font-bold uppercase tracking-widest">Diversité de la clientèle</p>
+              </div>
+            </div>
+          </div>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={demographics.countries}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={100}
+                  paddingAngle={2}
+                  dataKey="value"
+                  label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                  labelLine={{ stroke: '#dddbda', strokeWidth: 1 }}
+                >
+                  {demographics.countries.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} strokeWidth={1} stroke="#fff" />
+                  ))}
+                </Pie>
+                <Tooltip 
+                  formatter={(value: number, name: string, props: any) => [`${value} (${props?.payload?.percentage ?? 0}%)`, name]}
+                  contentStyle={{ borderRadius: '4px', border: '1px solid #dddbda', boxShadow: '0 2px 2px 0 rgba(0,0,0,0.1)', fontSize: '12px' }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Villes de Destination */}
+        <div className="slds-card p-6">
+          <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-[#0176d3] text-white rounded">
+                <MapPin size={20} />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slds-text-primary text-base">Villes de Destination</h3>
+                <p className="text-[10px] text-slds-text-secondary font-bold uppercase tracking-widest">Répartition géographique</p>
+              </div>
+            </div>
+          </div>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                layout="vertical"
+                data={demographics.cities}
+                margin={{ top: 5, right: 50, left: 20, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#dddbda" />
+                <XAxis type="number" hide />
+                <YAxis 
+                  dataKey="name" 
+                  type="category" 
+                  width={100} 
+                  tick={{ fontSize: 10, fill: '#444444', fontWeight: 600 }} 
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip 
+                  formatter={(value: number, name: string, props: any) => [`${value} (${props?.payload?.percentage ?? 0}%)`, name]}
+                  cursor={{fill: '#f3f3f2'}}
+                  contentStyle={{ borderRadius: '4px', border: '1px solid #dddbda', boxShadow: '0 2px 2px 0 rgba(0,0,0,0.1)', fontSize: '12px' }}
+                />
+                <Bar dataKey="value" barSize={20} radius={[0, 2, 2, 0]}>
+                  {demographics.cities.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                  ))}
+                  <LabelList 
+                    dataKey="fullLabel" 
+                    position="right" 
+                    style={{ fontSize: '10px', fontWeight: 'bold', fill: '#444444' }} 
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
       {/* Analyse des Besoins */}
       <div className="slds-card p-6">
         <div className="flex justify-between items-center mb-6">
@@ -322,99 +415,6 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, partners, sessions, acti
               <p className="text-xs font-bold uppercase tracking-widest">Données insuffisantes</p>
             </div>
           )}
-        </div>
-      </div>
-
-      {/* Démographie */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Pays d'origine */}
-        <div className="slds-card p-6">
-          <div className="flex justify-between items-center mb-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-[#54698d] text-white rounded">
-                <Globe size={20} />
-              </div>
-              <div>
-                <h3 className="font-semibold text-slds-text-primary text-base">Pays d'Origine</h3>
-                <p className="text-[10px] text-slds-text-secondary font-bold uppercase tracking-widest">Diversité de la clientèle</p>
-              </div>
-            </div>
-          </div>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={demographics.countries}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={2}
-                  dataKey="value"
-                  label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                  labelLine={{ stroke: '#dddbda', strokeWidth: 1 }}
-                >
-                  {demographics.countries.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} strokeWidth={1} stroke="#fff" />
-                  ))}
-                </Pie>
-                <Tooltip 
-                  formatter={(value: number, name: string, props: any) => [`${value} (${props?.payload?.percent ?? 0}%)`, name]}
-                  contentStyle={{ borderRadius: '4px', border: '1px solid #dddbda', boxShadow: '0 2px 2px 0 rgba(0,0,0,0.1)', fontSize: '12px' }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Villes de Destination */}
-        <div className="slds-card p-6">
-          <div className="flex justify-between items-center mb-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-[#0176d3] text-white rounded">
-                <MapPin size={20} />
-              </div>
-              <div>
-                <h3 className="font-semibold text-slds-text-primary text-base">Villes de Destination</h3>
-                <p className="text-[10px] text-slds-text-secondary font-bold uppercase tracking-widest">Répartition géographique</p>
-              </div>
-            </div>
-          </div>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                layout="vertical"
-                data={demographics.cities}
-                margin={{ top: 5, right: 50, left: 20, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#dddbda" />
-                <XAxis type="number" hide />
-                <YAxis 
-                  dataKey="name" 
-                  type="category" 
-                  width={100} 
-                  tick={{ fontSize: 10, fill: '#444444', fontWeight: 600 }} 
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip 
-                  formatter={(value: number, name: string, props: any) => [`${value} (${props?.payload?.percent ?? 0}%)`, name]}
-                  cursor={{fill: '#f3f3f2'}}
-                  contentStyle={{ borderRadius: '4px', border: '1px solid #dddbda', boxShadow: '0 2px 2px 0 rgba(0,0,0,0.1)', fontSize: '12px' }}
-                />
-                <Bar dataKey="value" barSize={20} radius={[0, 2, 2, 0]}>
-                  {demographics.cities.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                  ))}
-                  <LabelList 
-                    dataKey="fullLabel" 
-                    position="right" 
-                    style={{ fontSize: '10px', fontWeight: 'bold', fill: '#444444' }} 
-                  />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
         </div>
       </div>
     </div>

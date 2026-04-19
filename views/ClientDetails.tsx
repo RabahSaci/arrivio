@@ -44,13 +44,17 @@ import {
   ChevronDown,
   ArrowRight,
   Check,
-  Filter
+  Filter,
+  Target,
+  Users,
+  Trash2
 } from 'lucide-react';
 
 interface ClientDetailsProps {
   client: Client;
   activeRole: UserRole;
   currentUserName: string;
+  currentUserId: string;
   onBack: () => void;
   onUpdate: (updatedClient: Client) => void;
   onAddNote: (clientId: string, content: string) => Promise<void>;
@@ -61,12 +65,14 @@ interface ClientDetailsProps {
   allPartners?: Partner[];
   allProfiles?: Profile[];
   allLogs?: UserActivityLog[];
+  onDeleteClient?: (clientId: string) => void;
 }
 
 const ClientDetails: React.FC<ClientDetailsProps> = ({ 
   client, 
   activeRole, 
   currentUserName,
+  currentUserId,
   onBack, 
   onUpdate,
   onAddNote,
@@ -75,12 +81,13 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   allSessions = MOCK_SESSIONS,
   allPartners = [],
   allProfiles = [],
-  allLogs = []
+  allLogs = [],
+  onDeleteClient
 }) => {
   const DataField = ({ label, value }: { label: string, value?: string | null }) => (
-    <div className="flex flex-col gap-1">
-      <p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">{label}</p>
-      <p className="text-[11px] font-bold text-slate-800 break-words">{value || '---'}</p>
+    <div className="flex flex-col gap-0.5">
+      <p className="text-[11px] font-black text-slate-400 uppercase tracking-tight">{label}</p>
+      <p className="text-sm font-bold text-slate-800 break-words leading-tight">{value || '---'}</p>
     </div>
   );
 
@@ -88,7 +95,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   const [synthesis, setSynthesis] = useState<string | null>(null);
   const [peersLoading, setPeersLoading] = useState(false);
   const [synthesisLoading, setSynthesisLoading] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'info' | 'dossier' | 'workflow' | 'peers' | 'sessions' | 'audit'>('info');
+  const [activeSubTab, setActiveSubTab] = useState<'info' | 'dossier' | 'workflow' | 'peers' | 'sessions' | 'audit'>('dossier');
   const [newNote, setNewNote] = useState('');
   
   const [selectedPartnerId, setSelectedPartnerId] = useState(client.assignedPartnerId || '');
@@ -96,35 +103,38 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   const [secondaryCityFilter, setSecondaryCityFilter] = useState<string>('ALL');
   
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isUpdatingAttendance, setIsUpdatingAttendance] = useState<string | null>(null);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+
 
   // Historique unifié (Timeline)
   const fullTimeline = useMemo(() => {
     const items: { id: string; type: 'NOTE' | 'SYSTEM' | 'SESSION' | 'REFERRAL'; title?: string; content: string; author: string; timestamp: string }[] = [];
     
     // Notes
-    client.notes.forEach(note => {
-      items.push({ id: note.id, type: 'NOTE', content: note.content, author: note.authorName, timestamp: note.timestamp });
+    (client.notes || []).forEach(note => {
+      items.push({ id: note.id, type: 'NOTE', content: note.content, author: note.authorName || 'Anonyme', timestamp: note.timestamp });
     });
 
     // Logs système (Modifications profil)
-    allLogs.forEach(log => {
+    (allLogs || []).forEach(log => {
       // On vérifie si le log concerne ce client (via nom ou ID dans les détails)
-      if (log.entityType === 'CLIENT' && (log.details.includes(client.firstName) || log.details.includes(client.id) || log.details.includes(client.lastName))) {
-        items.push({ id: log.id, type: 'SYSTEM', title: log.actionType, content: log.details, author: log.userName, timestamp: log.timestamp });
+      if (log.entityType === 'CLIENT' && log.details && (log.details.includes(client.firstName || '') || log.details.includes(client.id || '') || log.details.includes(client.lastName || ''))) {
+        items.push({ id: log.id, type: 'SYSTEM', title: log.actionType, content: log.details, author: log.userName || 'Système', timestamp: log.timestamp });
       }
     });
 
     // Séances
-    const clientSessions = allSessions.filter(s => s.participantIds.includes(client.id));
+    const clientSessions = (allSessions || []).filter(s => s.participantIds?.includes(client.id));
     clientSessions.forEach(s => {
-      const isAbsent = s.noShowIds.includes(client.id);
+      const isAbsent = s.noShowIds?.includes(client.id);
       items.push({ 
         id: s.id, 
         type: 'SESSION', 
         title: `SÉANCE : ${s.title}`, 
         content: `${isAbsent ? 'Absent' : 'Présent'} - ${s.type}${s.notes ? ` : ${s.notes}` : ''}`, 
-        author: s.facilitatorName, 
+        author: s.facilitatorName || 'Inconnu', 
         timestamp: `${s.date}T${s.startTime}:00Z` 
       });
     });
@@ -135,7 +145,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
         id: 'ref-1', 
         type: 'REFERRAL', 
         title: 'TRANSFERT VERS PARTENAIRE', 
-        content: `Dossier transféré vers ${allPartners.find(p => p.id === client.assignedPartnerId)?.name || 'organisme partenaire'}`, 
+        content: `Dossier transféré vers ${(allPartners || []).find(p => p.id === client.assignedPartnerId)?.name || 'organisme partenaire'}`, 
         author: 'Conseiller CFGT', 
         timestamp: client.referralDate 
       });
@@ -158,7 +168,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   }, [activeRole]);
 
   const uniqueCities = useMemo(() => {
-    return Array.from(new Set(allPartners.map(p => p.city))).sort();
+    return Array.from(new Set((allPartners || []).map(p => p.city))).sort();
   }, [allPartners]);
 
   useEffect(() => {
@@ -175,7 +185,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   const handleRunSynthesis = async () => {
     setSynthesisLoading(true);
     try {
-      const clientSessions = allSessions.filter(s => s.participantIds.includes(client.id));
+      const clientSessions = (allSessions || []).filter(s => s.participantIds?.includes(client.id));
       const result = await generateClientSynthesis(client, clientSessions);
       setSynthesis(result || "Impossible de générer la synthèse.");
     } catch (err) {
@@ -188,7 +198,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   const handleRunPeerMatching = async () => {
     setPeersLoading(true);
     try {
-      const results = await getPeerMatches(client, allClients);
+      const results = await getPeerMatches(client, allClients || []);
       setPeerMatches(results);
     } catch (err) {
       console.error(err);
@@ -201,8 +211,8 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
     if (!onUpdateSession) return;
     setIsUpdatingAttendance(session.id);
     
-    const isCurrentlyNoShow = session.noShowIds.includes(client.id);
-    let newNoShowIds = [...session.noShowIds];
+    const isCurrentlyNoShow = session.noShowIds?.includes(client.id);
+    let newNoShowIds = [...(session.noShowIds || [])];
     let newStatus = session.individualStatus;
 
     if (isCurrentlyNoShow) {
@@ -233,7 +243,19 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
       status: ReferralStatus.REFERRED, 
       assignedPartnerId: selectedPartnerId, 
       secondaryPartnerIds: selectedSecondaryIds,
-      referralDate: new Date().toISOString() 
+      referralDate: new Date().toISOString(),
+      referredById: currentUserId 
+    });
+  };
+
+  const handleCancelReferral = () => {
+    onUpdate({
+      ...client,
+      status: ReferralStatus.PENDING,
+      assignedPartnerId: undefined,
+      secondaryPartnerIds: [],
+      referralDate: undefined,
+      referredById: undefined
     });
   };
 
@@ -276,8 +298,12 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   const currentStepIndex = workflowSteps.findIndex(x => x.st === client.status);
 
   const clientSessions = useMemo(() => {
-    return allSessions.filter(s => s.participantIds.includes(client.id))
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return (allSessions || []).filter(s => s.participantIds?.includes(client.id))
+      .sort((a, b) => {
+        const timeA = a.date ? new Date(a.date).getTime() : 0;
+        const timeB = b.date ? new Date(b.date).getTime() : 0;
+        return timeB - timeA;
+      });
   }, [allSessions, client.id]);
 
   const stats = useMemo(() => {
@@ -345,6 +371,12 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                <Archive size={14} /> Clôturer définitivement
              </button>
           )}
+
+          {activeRole === UserRole.ADMIN && onDeleteClient && (
+             <button onClick={() => setShowDeleteConfirm(true)} className="flex items-center gap-2 px-4 py-2 bg-white text-red-600 border border-red-200 hover:bg-red-50 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm">
+               <Trash2 size={14} /> Supprimer le client
+             </button>
+          )}
         </div>
       </div>
 
@@ -357,94 +389,123 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
         onCancel={() => setShowCloseConfirm(false)}
       />
 
-      <div className="flex flex-col lg:flex-row gap-6">
-        <div className="lg:w-1/3 space-y-6">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8 text-center relative overflow-hidden">
-            <div className={`absolute top-0 left-0 w-full h-2 ${client.status === ReferralStatus.CLOSED ? 'bg-slate-400' : 'bg-blue-600'}`} />
-            <div className="w-24 h-24 rounded-full bg-slate-50 border-4 border-white flex items-center justify-center text-slate-600 text-3xl font-black mx-auto mb-4 shadow-sm">
-              {client.firstName[0]}{client.lastName[0]}
+      <ConfirmModal 
+        isOpen={showDeleteConfirm}
+        title="Supprimer définitivement le client"
+        message="ATTENTION: Cette action est irréversible. Toutes les données, l'historique de présence et les notes associées à ce client seront définitivement supprimés. Voulez-vous continuer ?"
+        confirmLabel="Oui, supprimer définitivement"
+        cancelLabel="Annuler"
+        isDestructive={true}
+        onConfirm={() => {
+          if (onDeleteClient) {
+            onDeleteClient(client.id);
+            onBack();
+          }
+        }}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
+
+      <div className="flex flex-col gap-6">
+        {/* Grille Supérieure en 3 colonnes */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+          
+          {/* Colonne 1 : Identité & Assiduité Fusionnées */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 relative overflow-hidden flex flex-col justify-between">
+            <div className={`absolute top-0 left-0 w-full h-1.5 ${client.status === ReferralStatus.CLOSED ? 'bg-slate-400' : 'bg-blue-600'}`} />
+            
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-16 h-16 rounded-2xl bg-slate-50 border-2 border-slate-100 flex items-center justify-center text-slate-600 text-xl font-black shadow-sm flex-shrink-0">
+                {client.firstName[0]}{client.lastName[0]}
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-xl font-bold text-slate-900 tracking-tight truncate">{client.firstName} {client.lastName}</h2>
+                <div className={`mt-1 inline-block px-3 py-1 rounded-full text-[9px] font-black tracking-widest uppercase border ${STATUS_COLORS[client.status]}`}>
+                  {client.status.replace(/_/g, ' ')}
+                </div>
+              </div>
             </div>
-            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">{client.firstName} {client.lastName}</h2>
-            <div className={`mt-3 inline-block px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase border ${STATUS_COLORS[client.status]}`}>
-              {client.status.replace(/_/g, ' ')}
+
+            <div className={`p-4 rounded-2xl border ${rel.bg} border-current/10 flex items-center justify-between shadow-sm`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl ${rel.bg} flex items-center justify-center shadow-inner`}>
+                  <Activity size={20} className={rel.color} />
+                </div>
+                <div>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Assiduité</p>
+                  <p className={`text-[9px] font-bold uppercase ${rel.color} opacity-80`}>{rel.label}</p>
+                </div>
+              </div>
+              <div className={`px-4 py-2 rounded-xl border-2 font-black text-lg ${rel.color} ${rel.bg} border-current/20`}>
+                {100 - (client.noShowRatio || 0)}%
+              </div>
             </div>
+            <p className="text-[8px] text-slate-400 font-bold mt-4 uppercase tracking-tighter italic text-center">Calculé sur {stats.validCount} séance(s)</p>
           </div>
 
-          <div className={`p-6 rounded-3xl border ${rel.bg} border-current/10 flex flex-col items-center text-center shadow-sm`}>
-             <div className={`w-14 h-14 rounded-2xl ${rel.bg} flex items-center justify-center mb-3 shadow-inner`}>
-                <Activity size={28} className={rel.color} />
-             </div>
-             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Score d'assiduité</p>
-             <p className={`text-3xl font-black ${rel.color} mt-1`}>{100 - (client.noShowRatio || 0)}%</p>
-             <p className={`text-[9px] font-bold uppercase mt-2 ${rel.color} opacity-80`}>{rel.label}</p>
-             <div className="w-full h-1.5 bg-slate-200/50 rounded-full mt-4 overflow-hidden">
-               <div className={`h-full transition-all duration-1000 ${client.noShowRatio && client.noShowRatio > 25 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${100 - (client.noShowRatio || 0)}%` }} />
-             </div>
-             <p className="text-[8px] text-slate-400 font-bold mt-2 uppercase tracking-tighter italic">Calculé sur {stats.validCount} séance(s)</p>
-          </div>
-
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
-             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 flex justify-between items-center">
+          {/* Colonne 2 : Données Administratives */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col">
+             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 mb-4 flex justify-between items-center">
                Données Administratives
                <ShieldCheck size={14} className="text-slate-300" />
              </h3>
-             <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                   <div className="p-2 bg-blue-50 text-blue-500 rounded-xl"><Mail size={16}/></div>
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-2 overflow-y-auto max-h-[300px] pr-2 custom-scrollbar">
+                <div className="flex items-center gap-3 p-1.5 hover:bg-slate-50 rounded-xl transition-colors">
+                   <div className="p-2 bg-blue-50 text-blue-500 rounded-lg"><Mail size={14}/></div>
                    <div className="min-w-0 flex-1">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">Email</p>
-                      <p className="text-[11px] font-bold text-slate-800 truncate">{client.email}</p>
+                      <p className="text-[11px] font-black text-slate-400 uppercase tracking-tight">Email</p>
+                      <p className="text-sm font-bold text-slate-800 truncate leading-tight">{client.email}</p>
                    </div>
                 </div>
-                <div className="flex items-center gap-3">
-                   <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl"><Globe size={16}/></div>
+                <div className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl transition-colors">
+                   <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><Globe size={14}/></div>
                    <div className="min-w-0 flex-1">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">Pays d'Origine</p>
-                      <p className="text-[11px] font-bold text-slate-800">{client.originCountry}</p>
+                      <p className="text-[11px] font-black text-slate-400 uppercase tracking-tight">Pays d'Origine</p>
+                      <p className="text-sm font-bold text-slate-800 truncate leading-tight">{client.originCountry}</p>
                    </div>
                 </div>
-                <div className="flex items-center gap-3">
-                   <div className="p-2 bg-purple-50 text-purple-600 rounded-xl"><Briefcase size={16}/></div>
+                <div className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl transition-colors">
+                   <div className="p-2 bg-purple-50 text-purple-600 rounded-lg"><Briefcase size={14}/></div>
                    <div className="min-w-0 flex-1">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">Profession</p>
-                      <p className="text-[11px] font-bold text-slate-800 truncate">{client.profession}</p>
+                      <p className="text-[11px] font-black text-slate-400 uppercase tracking-tight">Profession</p>
+                      <p className="text-sm font-bold text-slate-800 truncate leading-tight">{client.profession}</p>
                    </div>
                 </div>
-                <div className="flex items-center gap-3">
-                   <div className="p-2 bg-amber-50 text-amber-600 rounded-xl"><MapPin size={16}/></div>
+                <div className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl transition-colors">
+                   <div className="p-2 bg-amber-50 text-amber-600 rounded-lg"><MapPin size={14}/></div>
                    <div className="min-w-0 flex-1">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">Ville de destination</p>
-                      <p className="text-[11px] font-bold text-slate-800">{client.destinationCity}</p>
-                   </div>
-                </div>
-                <div className="flex items-center gap-3">
-                   <div className="p-2 bg-slate-100 text-slate-600 rounded-xl"><Calendar size={16}/></div>
-                   <div className="min-w-0 flex-1">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">Arrivée prévue</p>
-                      <p className="text-[11px] font-bold text-slate-800">{new Date(client.arrivalDate).toLocaleDateString()}</p>
+                      <p className="text-[11px] font-black text-slate-400 uppercase tracking-tight">Ville</p>
+                      <p className="text-sm font-bold text-slate-800 truncate leading-tight">{client.destinationCity}</p>
                    </div>
                 </div>
              </div>
           </div>
 
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2 text-sm uppercase tracking-tight"><FileText size={18} className="text-blue-500" /> Ajouter une note</h3>
-            {client.status !== ReferralStatus.CLOSED && (
-              <div className="flex flex-col gap-3">
+          {/* Colonne 3 : Ajout de Note */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col">
+            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2 text-[10px] uppercase tracking-widest text-slate-400 border-b pb-2">
+              <FileText size={14} className="text-blue-500" /> Saisie Rapide Note
+            </h3>
+            {client.status !== ReferralStatus.CLOSED ? (
+              <div className="flex flex-col gap-3 flex-1">
                 <textarea 
                   value={newNote} 
                   onChange={e => setNewNote(e.target.value)} 
-                  placeholder="Compte-rendu d'entretien ou observation..." 
-                  className="w-full text-xs border border-slate-200 rounded-xl bg-slate-50 p-4 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold h-24 resize-none" 
+                  placeholder="Observation ou compte-rendu..." 
+                  className="w-full text-xs border border-slate-200 rounded-xl bg-slate-50 p-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold flex-1 resize-none" 
                 />
-                <button onClick={handleAddNoteInternal} className="w-full py-3 bg-blue-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all flex items-center justify-center gap-2">
-                  <Send size={14} /> Enregistrer la note
+                <button onClick={handleAddNoteInternal} className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-black uppercase text-[9px] tracking-widest hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all flex items-center justify-center gap-2">
+                  <Send size={12} /> Enregistrer
                 </button>
+              </div>
+            ) : (
+              <div className="flex-1 flex items-center justify-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Dossier clôturé</p>
               </div>
             )}
           </div>
         </div>
 
+        {/* Zone Inférieure : Onglets Pleine Largeur */}
         <div className="flex-1">
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden min-h-[700px]">
             <div className="flex border-b border-slate-100 bg-slate-50/50 overflow-x-auto">
@@ -490,13 +551,13 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Section Identité */}
-                    <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest mb-6 flex items-center gap-2">
+                    <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
+                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest mb-4 flex items-center gap-2">
                         <User className="text-blue-500" size={16} /> Identité & Contact
                       </h4>
-                      <div className="grid grid-cols-2 gap-6">
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                         <DataField label="Prénom" value={client.firstName} />
                         <DataField label="Nom" value={client.lastName} />
                         <DataField label="Genre" value={client.gender} />
@@ -504,38 +565,32 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                         <DataField label="Email" value={client.email} />
                         <DataField label="Téléphone" value={client.phoneNumber} />
                         <DataField label="Pays de Résidence" value={client.residenceCountry} />
-                        <DataField label="Pays de Naissance" value={client.birthCountry} />
                         <DataField label="#IUC ou #CRP" value={client.iucCrpNumber} />
                       </div>
                     </div>
 
                     {/* Section Famille */}
-                    <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest mb-6 flex items-center gap-2">
+                    <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
+                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest mb-4 flex items-center gap-2">
                         <HeartHandshake className="text-pink-500" size={16} /> Famille & Entourage
                       </h4>
-                      <div className="grid grid-cols-2 gap-6">
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                         <DataField label="Type d'Immigration" value={client.immigrationType} />
                         <DataField label="Requérant Principal" value={client.mainApplicant} />
-                        <DataField label="Compte Lié" value={client.linkedAccount} />
                         <div className="col-span-2 h-px bg-slate-100 my-2" />
                         <DataField label="Conjoint(e) - Nom" value={client.spouseFullName} />
-                        <DataField label="Conjoint(e) - Naissance" value={client.spouseBirthDate} />
                         <DataField label="Conjoint(e) - Email" value={client.spouseEmail} />
-                        <DataField label="Conjoint(e) - IUC/CRP" value={client.spouseIucCrpNumber} />
                         <div className="col-span-2 h-px bg-slate-100 my-2" />
                         <DataField label="Nombre d'enfants" value={client.childrenCount?.toString()} />
-                        <DataField label="Noms des enfants" value={client.childrenFullNames} />
-                        <DataField label="Naissances enfants" value={client.childrenBirthDates} />
                       </div>
                     </div>
 
                     {/* Section Immigration */}
-                    <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest mb-6 flex items-center gap-2">
+                    <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
+                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest mb-4 flex items-center gap-2">
                         <MapPin className="text-amber-500" size={16} /> Projet Ontario
                       </h4>
-                      <div className="grid grid-cols-2 gap-6">
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                         <DataField label="Prog. Immigration" value={client.participatedImmigrationProgram} />
                         <DataField label="Province Choisie" value={client.chosenProvince} />
                         <DataField label="Ville Choisie" value={client.chosenCity} />
@@ -549,11 +604,11 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                     </div>
 
                     {/* Section Professionnelle */}
-                    <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest mb-6 flex items-center gap-2">
+                    <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm">
+                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest mb-4 flex items-center gap-2">
                         <Briefcase className="text-purple-500" size={16} /> Situation Professionnelle
                       </h4>
-                      <div className="grid grid-cols-2 gap-6">
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                          <DataField label="Emploi Actuel" value={client.currentJob} />
                          <DataField label="Situation Actuelle" value={client.currentEmploymentStatus} />
                          <DataField label="Groupe NOC" value={client.currentNocGroup} />
@@ -563,8 +618,6 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                          <DataField label="Profession Visée (CA)" value={client.intendedProfessionGroupCanada} />
                          <div className="col-span-2">
                             <DataField label="Reconnaissance Compétences" value={client.intentionCredentialsRecognition} />
-                            <DataField label="Accréditation avant arrivée" value={client.intentionAccreditationBeforeArrival} />
-                            <DataField label="EDE Réalisé" value={client.doneEca} />
                          </div>
                       </div>
                     </div>
@@ -578,7 +631,6 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                         <div className="space-y-6">
                           <DataField label="Niveau Éducation" value={client.educationLevel} />
                           <DataField label="Spécialisation" value={client.specialization} />
-                          <DataField label="Date Fin Formation" value={client.trainingCompletionDate} />
                         </div>
                         <div className="space-y-6">
                           <DataField label="Niveau Anglais" value={client.englishLevel} />
@@ -591,8 +643,6 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                         <div className="space-y-6 p-4 bg-slate-50 rounded-2xl border border-slate-100">
                           <DataField label="Source Référencement" value={client.referralSource} />
                           <DataField label="Consentement Marketing" value={client.marketingConsent} />
-                          <DataField label="Approuvé" value={client.isApproved} />
-                          <DataField label="Profil Complété" value={client.isProfileCompleted} />
                         </div>
                       </div>
                     </div>
@@ -654,16 +704,26 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                          </div>
                        </div>
                        
-                       <div className="flex items-end">
-                         <button 
-                           onClick={handleReferralSubmission}
-                           disabled={!selectedPartnerId}
-                           className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-xl hover:bg-slate-800 transition-all disabled:opacity-30 flex items-center justify-center gap-2 group"
-                         >
-                           {client.status === ReferralStatus.PENDING ? 'Initier le transfert' : 'Mettre à jour les référencements'}
-                           <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
-                         </button>
-                       </div>
+                        <div className="flex items-end gap-3">
+                          <button 
+                            onClick={handleReferralSubmission}
+                            disabled={!selectedPartnerId}
+                            className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-xl hover:bg-slate-800 transition-all disabled:opacity-30 flex items-center justify-center gap-2 group"
+                          >
+                            {client.status === ReferralStatus.PENDING ? 'Initier le transfert' : 'Mettre à jour les référencements'}
+                            <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                          </button>
+
+                          {(activeRole === UserRole.ADMIN || (activeRole === UserRole.ADVISOR && client.referredById === currentUserId)) && client.status !== ReferralStatus.PENDING && client.status !== ReferralStatus.CLOSED && (
+                            <button 
+                              onClick={handleCancelReferral}
+                              className="px-6 py-4 bg-white border border-red-200 text-red-600 rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-sm hover:bg-red-50 transition-all flex items-center justify-center gap-2"
+                              title="Annuler le transfert et remettre en attente"
+                            >
+                              <X size={16} /> Annuler
+                            </button>
+                          )}
+                        </div>
                     </div>
 
                     {/* Section Référencements Secondaires */}
@@ -813,37 +873,103 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                       {clientSessions.map(session => {
                         const isAbsent = session.noShowIds.includes(client.id);
                         return (
-                          <div key={session.id} className="p-6 bg-slate-50 border border-slate-100 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:bg-white hover:shadow-md transition-all group">
-                            <div className="flex items-center gap-4">
-                              <div className={`w-12 h-12 bg-white rounded-2xl border border-slate-100 flex items-center justify-center ${isAbsent ? 'text-red-500' : 'text-emerald-500'} group-hover:bg-slate-900 group-hover:text-white transition-colors shadow-sm`}>
-                                {isAbsent ? <UserX size={24} /> : <UserCheck size={24} />}
-                              </div>
-                              <div>
-                                <h4 className="text-sm font-black text-slate-800">{session.title}</h4>
-                                <div className="flex flex-wrap gap-2 mt-1">
-                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
-                                    <Clock size={10} /> {new Date(session.date).toLocaleDateString()} @ {session.startTime}
-                                  </span>
-                                  <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${isAbsent ? 'bg-red-50 text-red-600 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
-                                    {isAbsent ? 'Marqué Absent' : 'Marqué Présent'}
-                                  </span>
+                          <div key={session.id} className="overflow-hidden bg-slate-50 border border-slate-100 rounded-3xl hover:bg-white hover:shadow-md transition-all group">
+                            <div 
+                              onClick={() => { if(session.category !== SessionCategory.GROUP) setExpandedSessionId(expandedSessionId === session.id ? null : session.id); }}
+                              className={`p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${session.category !== SessionCategory.GROUP ? 'cursor-pointer' : 'cursor-default'}`}
+                            >
+                              <div className="flex items-center gap-4">
+                                <div className={`w-12 h-12 bg-white rounded-2xl border border-slate-100 flex items-center justify-center ${session.category === SessionCategory.GROUP ? 'text-purple-500' : (isAbsent ? 'text-red-500' : 'text-emerald-500')} group-hover:bg-slate-900 group-hover:text-white transition-colors shadow-sm`}>
+                                  {session.category === SessionCategory.GROUP ? <Users size={24} /> : (isAbsent ? <UserX size={24} /> : <UserCheck size={24} />)}
+                                </div>
+                                <div>
+                                  <h4 className="text-sm font-black text-slate-800">{session.title}</h4>
+                                  <div className="flex flex-wrap gap-3 mt-1.5">
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                                      <Clock size={11} /> {new Date(session.date).toLocaleDateString()} @ {session.startTime}
+                                    </span>
+                                    <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border flex items-center gap-1.5 ${session.category === SessionCategory.GROUP ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
+                                      {session.category === SessionCategory.GROUP ? <Users size={11} /> : <User size={11} />}
+                                      {session.category === SessionCategory.GROUP ? 'Session de Groupe' : 'Suivi Individuel'}
+                                    </span>
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                                      <Tag size={11} /> {SESSION_TYPE_LABELS[session.type] || session.type}
+                                    </span>
+                                    {(session.facilitatorName || session.advisorName) && (
+                                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                                        <Briefcase size={11} /> 
+                                        {session.facilitatorName || session.advisorName}
+                                        {session.facilitatorName && session.advisorName && session.facilitatorName !== session.advisorName && (
+                                          <span className="opacity-60 ml-1">(Conseiller: {session.advisorName})</span>
+                                        )}
+                                      </span>
+                                    )}
+                                    {session.category !== SessionCategory.GROUP && (
+                                      <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${isAbsent ? 'bg-red-50 text-red-600 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+                                        {isAbsent ? 'Absent' : 'Présent'}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
+                              
+                              <div className="flex items-center gap-3 ml-auto md:ml-0" onClick={e => e.stopPropagation()}>
+                                 {onUpdateSession && session.category !== SessionCategory.GROUP && (
+                                   <button 
+                                    onClick={() => handleToggleAttendance(session)}
+                                    disabled={isUpdatingAttendance === session.id}
+                                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${isAbsent ? 'bg-blue-600 text-white shadow-blue-100' : 'bg-white border border-slate-200 text-red-600 hover:bg-red-50'} disabled:opacity-50`}
+                                   >
+                                     {isUpdatingAttendance === session.id ? <Loader2 size={12} className="animate-spin" /> : isAbsent ? <CheckCircle2 size={14}/> : <UserX size={14}/>}
+                                     {isAbsent ? 'Restaurer Présence' : 'Signaler No-Show'}
+                                   </button>
+                                 )}
+                                 {session.category !== SessionCategory.GROUP && (
+                                   <div className={`p-2 rounded-lg transition-transform ${expandedSessionId === session.id ? 'rotate-180 bg-slate-100' : 'bg-white'}`}>
+                                     <ChevronDown size={16} className="text-slate-400" />
+                                   </div>
+                                 )}
+                              </div>
                             </div>
-                            
-                            <div className="flex items-center gap-3 ml-auto md:ml-0">
-                               {onUpdateSession && (
-                                 <button 
-                                  onClick={() => handleToggleAttendance(session)}
-                                  disabled={isUpdatingAttendance === session.id}
-                                  className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${isAbsent ? 'bg-blue-600 text-white shadow-blue-100' : 'bg-white border border-slate-200 text-red-600 hover:bg-red-50'} disabled:opacity-50`}
-                                 >
-                                   {isUpdatingAttendance === session.id ? <Loader2 size={12} className="animate-spin" /> : isAbsent ? <CheckCircle2 size={14}/> : <UserX size={14}/>}
-                                   {isAbsent ? 'Restaurer Présence' : 'Signaler No-Show'}
-                                 </button>
-                               )}
-                            </div>
+
+                            {expandedSessionId === session.id && session.category !== SessionCategory.GROUP && (
+                              <div className="px-6 pb-6 pt-2 border-t border-slate-100 bg-white/50 animate-in slide-in-from-top-2 duration-300">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+                                  <div className="space-y-2">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                      <Target size={14} className="text-blue-500" /> Besoins discutés
+                                    </p>
+                                    <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50 min-h-[80px]">
+                                      <p className="text-xs text-slate-700 font-medium leading-relaxed">
+                                        {session.discussedNeeds || "Aucun besoin renseigné"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                      <Zap size={14} className="text-amber-500" /> Actions planifiées
+                                    </p>
+                                    <div className="p-4 bg-amber-50/50 rounded-2xl border border-amber-100/50 min-h-[80px]">
+                                      <p className="text-xs text-slate-700 font-medium leading-relaxed">
+                                        {session.actions || "Aucune action planifiée"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                      <FileText size={14} className="text-slate-400" /> Notes générales
+                                    </p>
+                                    <div className="p-4 bg-slate-100/50 rounded-2xl border border-slate-200/50 min-h-[80px]">
+                                      <p className="text-xs text-slate-700 font-medium leading-relaxed italic">
+                                        {session.notes || "Aucune note générale"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
+
                         );
                       })}
                     </div>

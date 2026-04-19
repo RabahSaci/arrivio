@@ -1,8 +1,10 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { Client, Mentor, Session, UserRole, Partner, ReferralStatus } from '../types';
+import { Client, Mentor, Session, UserRole, Partner, ReferralStatus, ReferralStatus as StatusType } from '../types';
 import Pagination from '../components/Pagination';
 import { STATUS_COLORS } from '../constants';
+import ConfirmModal from '../components/ConfirmModal';
+import { apiService } from '../services/apiService';
 import { 
   Search, 
   Plus, 
@@ -20,7 +22,8 @@ import {
   Database,
   ArrowUpDown,
   Activity,
-  Share2
+  Share2,
+  Trash2
 } from 'lucide-react';
 
 interface ClientListProps {
@@ -31,54 +34,72 @@ interface ClientListProps {
   onSelectClient: (client: Client) => void;
   onAddClient: (client: Client) => void;
   onBulkAddClients: (clients: Client[]) => Promise<void>;
+  onDeleteClient?: (clientId: string) => void;
 }
 
-const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPartnerId, currentUserId, onSelectClient, onAddClient, onBulkAddClients }) => {
+const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPartnerId, currentUserId, onSelectClient, onAddClient, onBulkAddClients, onDeleteClient }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<ReferralStatus | 'ALL'>('ALL');
   const [filterEmail, setFilterEmail] = useState('');
   const [filterCity, setFilterCity] = useState('ALL');
   const [filterCountry, setFilterCountry] = useState('ALL');
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [uniqueCities, setUniqueCities] = useState<string[]>([]);
+  const [uniqueCountries, setUniqueCountries] = useState<string[]>([]);
   
   const [showAddModal, setShowAddModal] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [clientToDelete, setClientToDelete] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const uniqueCities = useMemo(() => Array.from(new Set(clients.map(c => c.destinationCity))).sort(), [clients]);
-  const uniqueCountries = useMemo(() => Array.from(new Set(clients.map(c => c.originCountry))).sort(), [clients]);
-
   const filteredClients = useMemo(() => {
-    setCurrentPage(1); // Reset to first page on filter change
     return clients.filter(client => {
-      // Visibilité PARTENAIRE : Mandat Principal OU Secondaire
-      if (activeRole === UserRole.PARTNER) {
-        const isPrimary = client.assignedPartnerId === currentPartnerId;
-        const isSecondary = client.secondaryPartnerIds?.includes(currentPartnerId || '');
-        if (!isPrimary && !isSecondary) return false;
+      // Filtrage par texte (sur tous les champs texte)
+      if (searchTerm) {
+        const query = searchTerm.toLowerCase();
+        if (!(
+          client.firstName?.toLowerCase().includes(query) ||
+          client.lastName?.toLowerCase().includes(query) ||
+          client.clientCode?.toLowerCase().includes(query) ||
+          client.email?.toLowerCase().includes(query)
+        )) return false;
       }
       
-      if (activeRole === UserRole.MENTOR) {
-        if (client.assignedMentorId !== currentUserId) return false; 
-      }
+      if (filterStatus !== 'ALL' && client.status !== filterStatus) return false;
+      if (filterEmail && !client.email?.toLowerCase().includes(filterEmail.toLowerCase())) return false;
+      if (filterCity !== 'ALL' && client.destinationCity !== filterCity) return false;
+      if (filterCountry !== 'ALL' && client.originCountry !== filterCountry) return false;
+      if (filterStartDate && (!client.registrationDate || client.registrationDate < filterStartDate)) return false;
+      if (filterEndDate && (!client.registrationDate || client.registrationDate > filterEndDate)) return false;
       
-      const matchSearch = (client.firstName + ' ' + client.lastName).toLowerCase().includes(searchTerm.toLowerCase());
-      const matchStatus = filterStatus === 'ALL' || client.status === filterStatus;
-      const matchEmail = client.email.toLowerCase().includes(filterEmail.toLowerCase());
-      const matchCity = filterCity === 'ALL' || client.destinationCity === filterCity;
-      const matchCountry = filterCountry === 'ALL' || client.originCountry === filterCountry;
+      if (activeRole === UserRole.PARTNER && client.assignedPartnerId !== currentPartnerId) return false;
       
-      return matchSearch && matchStatus && matchEmail && matchCity && matchCountry;
+      return true;
+    }).sort((a, b) => {
+      return new Date(b.registrationDate || 0).getTime() - new Date(a.registrationDate || 0).getTime();
     });
-  }, [clients, activeRole, currentPartnerId, currentUserId, searchTerm, filterStatus, filterEmail, filterCity, filterCountry]);
+  }, [clients, searchTerm, filterStatus, filterEmail, filterCity, filterCountry, filterStartDate, filterEndDate, activeRole, currentPartnerId]);
+
+  const totalItems = filteredClients.length;
 
   const paginatedClients = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     return filteredClients.slice(startIndex, startIndex + itemsPerPage);
   }, [filteredClients, currentPage]);
 
-  const totalPages = Math.ceil(filteredClients.length / itemsPerPage);
+  useEffect(() => {
+    const cities = new Set(clients.map(c => c.destinationCity).filter(Boolean));
+    const countries = new Set(clients.map(c => c.originCountry).filter(Boolean));
+    setUniqueCities(Array.from(cities).sort() as string[]);
+    setUniqueCountries(Array.from(countries).sort() as string[]);
+  }, [clients]);
+
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
 
   const resetFilters = () => {
     setSearchTerm('');
@@ -86,6 +107,8 @@ const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPar
     setFilterEmail('');
     setFilterCity('ALL');
     setFilterCountry('ALL');
+    setFilterStartDate('');
+    setFilterEndDate('');
   };
 
   const handleImportExcel = () => {
@@ -329,94 +352,140 @@ const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPar
     <div className="space-y-4">
       <input type="file" ref={fileInputRef} onChange={onFileChange} className="hidden" accept=".xlsx,.xls,.csv" />
       
-      {/* Barre d'actions et filtres SLDS */}
-      <div className="slds-card p-3 space-y-3">
-        <div className="flex flex-col lg:flex-row gap-3 justify-between items-center">
-          <div className="relative w-full lg:w-80">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slds-text-secondary" size={14} />
+      {/* Barre d'outils hiérarchisée (2 lignes) */}
+      <div className="slds-card pl-10 pr-6 py-5 space-y-5">
+        {/* Ligne 1 : Identification & Actions Primaires */}
+        <div className="flex items-center justify-between gap-6">
+          <div className="flex items-center gap-3">
+            <div className="relative w-48 sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slds-text-secondary" size={12} />
+              <input 
+                type="text" 
+                placeholder="Rechercher..." 
+                className="slds-input slds-input-compact pl-10 text-[11px]" 
+                value={searchTerm} 
+                onChange={(e) => setSearchTerm(e.target.value)} 
+              />
+            </div>
+
             <input 
               type="text" 
-              placeholder="Rechercher par nom..." 
-              className="slds-input slds-input-compact pl-10" 
-              value={searchTerm} 
-              onChange={(e) => setSearchTerm(e.target.value)} 
+              placeholder="Email..." 
+              className="slds-input slds-input-compact w-32 text-[11px] h-8"
+              value={filterEmail}
+              onChange={(e) => setFilterEmail(e.target.value)} 
             />
           </div>
-          
-          <div className="flex gap-2 w-full lg:w-auto">
+
+          <div className="flex items-center gap-4">
+            <div className="flex flex-col items-end">
+              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">
+                {totalItems} dossiers
+              </div>
+              {paginatedClients.length > 0 && (() => {
+                const latestDate = paginatedClients
+                  .map(c => c.registrationDate)
+                  .filter((d): d is string => !!d && !isNaN(new Date(d).getTime()))
+                  .sort((a, b) => new Date(b!).getTime() - new Date(a!).getTime())[0];
+                
+                if (latestDate) {
+                  const [y, m, d] = latestDate.split('-');
+                  return (
+                    <div className="text-[8px] font-bold text-slate-400 uppercase tracking-tight mt-1">
+                      Dernier import : {`${d}/${m}/${y}`}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+
             {activeRole !== UserRole.MENTOR && (
-              <>
+              <div className="flex items-center gap-1.5 border-l border-slds-border pl-4 h-8">
                 <button 
                   onClick={handleImportExcel} 
                   disabled={isImporting} 
-                  className="slds-button slds-button-neutral !px-4 !py-2 flex items-center gap-2"
+                  className="slds-button slds-button-neutral !px-3 !py-1 flex items-center gap-1.5 text-[10px] h-full"
                 >
-                  {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                  {isImporting ? 'Importation...' : 'Importer'}
+                  {isImporting ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                  <span>Import</span>
                 </button>
                 <button 
                   onClick={() => setShowAddModal(true)} 
-                  className="slds-button slds-button-brand !px-4 !py-2 flex items-center gap-2"
+                  className="slds-button slds-button-brand !px-3 !py-1 flex items-center gap-1.5 text-[10px] h-full"
                 >
-                  <Plus size={14} /> Nouveau Dossier
+                  <Plus size={12} /> <span>Nouveau</span>
                 </button>
-              </>
+              </div>
             )}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slds-border">
-          <div className="flex items-center gap-2 text-slds-text-secondary">
-            <Filter size={12} />
-            <span className="text-[10px] font-black uppercase tracking-tight">Filtres :</span>
+        {/* Ligne 2 : Les filtres sur une seule ligne dédiée */}
+        <div className="flex items-center gap-4 pt-2 border-t border-slds-border/50">
+          <div className="flex items-center gap-1 text-slds-text-secondary mr-2">
+            <Filter size={10} />
+            <span className="text-[9px] font-black uppercase tracking-tighter">Filtres</span>
           </div>
 
           <select 
-            className="slds-input slds-input-compact w-auto min-w-[120px]"
+            className="slds-input slds-input-compact w-auto text-[10px] h-7 min-w-[100px]"
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value as any)}
           >
-            <option value="ALL">Statuts</option>
+            <option value="ALL">Tous Statuts</option>
             {Object.values(ReferralStatus).map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
           </select>
 
-          <input 
-            type="text" 
-            placeholder="Email..." 
-            className="slds-input slds-input-compact w-32"
-            value={filterEmail}
-            onChange={(e) => setFilterEmail(e.target.value)}
-          />
-
           <select 
-            className="slds-input slds-input-compact w-auto"
+            className="slds-input slds-input-compact w-auto text-[10px] h-7"
             value={filterCity}
             onChange={(e) => setFilterCity(e.target.value)}
           >
-            <option value="ALL">Villes</option>
+            <option value="ALL">Toutes Villes</option>
             {uniqueCities.map(city => <option key={city} value={city}>{city}</option>)}
           </select>
 
           <select 
-            className="slds-input slds-input-compact w-auto"
+            className="slds-input slds-input-compact w-auto text-[10px] h-7"
             value={filterCountry}
             onChange={(e) => setFilterCountry(e.target.value)}
           >
-            <option value="ALL">Pays</option>
+            <option value="ALL">Tous Pays</option>
             {uniqueCountries.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
 
-          {(searchTerm || filterStatus !== 'ALL' || filterEmail || filterCity !== 'ALL' || filterCountry !== 'ALL') && (
+          {(searchTerm || filterStatus !== 'ALL' || filterEmail || filterCity !== 'ALL' || filterCountry !== 'ALL' || filterStartDate || filterEndDate) && (
             <button 
               onClick={resetFilters}
-              className="text-[10px] font-black text-slds-brand uppercase hover:underline"
+              className="text-[9px] font-black text-slds-brand px-1 hover:underline uppercase"
             >
-              Reset
+              Réinitialiser
             </button>
           )}
-          
-          <div className="ml-auto text-[10px] font-black text-slate-400 uppercase tracking-widest">
-            {filteredClients.length} dossiers
+        </div>
+
+        {/* Ligne 3 : Filtre par date d'arrivée */}
+        <div className="flex items-center gap-3 pt-3 border-t border-slds-border/50">
+          <div className="flex items-center gap-1 text-slds-text-secondary mr-2">
+            <Calendar size={10} />
+            <span className="text-[9px] font-black uppercase tracking-tighter">Arrivée pévue entre :</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input 
+              type="date" 
+              className="slds-input slds-input-compact w-auto text-[10px] h-7"
+              value={filterStartDate}
+              onChange={(e) => setFilterStartDate(e.target.value)}
+            />
+            <span className="text-[9px] font-black uppercase text-slate-400">et</span>
+            <input 
+              type="date" 
+              className="slds-input slds-input-compact w-auto text-[10px] h-7"
+              value={filterEndDate}
+              onChange={(e) => setFilterEndDate(e.target.value)}
+            />
           </div>
         </div>
       </div>
@@ -431,7 +500,7 @@ const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPar
                 <th>Contact</th>
                 <th className="text-center">Statut</th>
                 <th>Localisation</th>
-                <th>Arrivée</th>
+                <th>Référé le</th>
                 <th></th>
               </tr>
             </thead>
@@ -485,10 +554,24 @@ const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPar
                       </div>
                     </td>
                     <td className="text-xs text-slds-text-primary">
-                      {new Date(client.arrivalDate).toLocaleDateString('fr-FR')}
+                      {client.referralDate ? new Date(client.referralDate).toLocaleDateString('fr-FR') : '—'}
                     </td>
                     <td className="text-right">
-                      <ChevronRight size={16} className="text-slds-text-secondary opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <div className="flex items-center justify-end gap-2">
+                        {activeRole === UserRole.ADMIN && onDeleteClient && (
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setClientToDelete(client.id);
+                            }}
+                            className="p-1 px-2 text-slds-text-secondary hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                            title="Supprimer le client"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                        <ChevronRight size={16} className="text-slds-text-secondary opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
                     </td>
                   </tr>
                 );
@@ -496,7 +579,7 @@ const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPar
             </tbody>
           </table>
           
-          {filteredClients.length === 0 && (
+          {paginatedClients.length === 0 && (
             <div className="py-12 text-center">
               <Database size={48} className="mx-auto text-slds-border mb-3" />
               <h3 className="text-slds-text-primary font-bold text-sm">Aucun résultat trouvé</h3>
@@ -510,7 +593,7 @@ const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPar
           currentPage={currentPage}
           totalPages={totalPages}
           onPageChange={setCurrentPage}
-          totalItems={filteredClients.length}
+          totalItems={totalItems}
           itemsPerPage={itemsPerPage}
           label="dossiers"
         />
@@ -590,6 +673,23 @@ const ClientList: React.FC<ClientListProps> = ({ clients, activeRole, currentPar
           </div>
         </div>
       )}
+
+      {/* Confirmation de suppression */}
+      <ConfirmModal 
+        isOpen={!!clientToDelete}
+        title="Supprimer le dossier client"
+        message="Êtes-vous certain de vouloir supprimer définitivement ce dossier client ? Cette action est irréversible et supprimera également l'historique associé."
+        confirmLabel="Supprimer"
+        cancelLabel="Annuler"
+        onConfirm={() => {
+          if (clientToDelete && onDeleteClient) {
+            onDeleteClient(clientToDelete);
+            setClientToDelete(null);
+          }
+        }}
+        onCancel={() => setClientToDelete(null)}
+        isDestructive={true}
+      />
     </div>
   );
 };
