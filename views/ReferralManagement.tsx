@@ -224,18 +224,8 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
       // 1. Filtrage métier (uniquement les référencements)
       if (client.status === 'FERME' || !client.status) return false;
       
-      // La règle originale: on affiche ceux qui ont arrivalDateApprox OU assignedPartnerId
-      if (!client.arrivalDateApprox && !client.assignedPartnerId) return false;
-
-      // NOUVELLE CONDITION: Doit avoir eu une séance "Établissement"
-      const clientSessions = sessionsByClient.get(client.id) || [];
-      const hasEstablishmentSession = clientSessions.some(s => 
-        s.type === SessionType.ESTABLISHMENT && 
-        s.category === SessionCategory.INDIVIDUAL &&
-        s.individualStatus === AttendanceStatus.PRESENT &&
-        new Date(s.date) >= new Date('2025-04-01')
-      );
-      if (!hasEstablishmentSession) return false;
+      // La règle originale: on affiche ceux qui ont arrivalDateApprox OU assignedPartnerId (ou arrivalDate)
+      if (!client.arrivalDateApprox && !client.assignedPartnerId && !client.arrivalDate) return false;
 
       // 2. Filtrage partenaire (si compte partenaire, on ne voit que ses affiliés)
       if (activeRole === UserRole.PARTNER) {
