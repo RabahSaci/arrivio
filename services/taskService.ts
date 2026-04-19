@@ -109,7 +109,8 @@ export const refreshAutomatedTasks = (
           .filter(s => 
             s.type === SessionType.ESTABLISHMENT && 
             s.category === SessionCategory.INDIVIDUAL && 
-            s.participantIds?.includes(client.id)
+            s.participantIds?.includes(client.id) &&
+            new Date(s.date) >= new Date('2025-04-01')
           )
           .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 

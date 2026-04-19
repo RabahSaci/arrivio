@@ -230,7 +230,9 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
       // NOUVELLE CONDITION: Doit avoir eu une séance "Établissement"
       const clientSessions = sessionsByClient.get(client.id) || [];
       const hasEstablishmentSession = clientSessions.some(s => 
-        s.type === SessionType.ESTABLISHMENT && s.category === SessionCategory.INDIVIDUAL
+        s.type === SessionType.ESTABLISHMENT && 
+        s.category === SessionCategory.INDIVIDUAL &&
+        new Date(s.date) >= new Date('2025-04-01')
       );
       if (!hasEstablishmentSession) return false;
 
