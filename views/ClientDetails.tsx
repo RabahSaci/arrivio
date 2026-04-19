@@ -141,18 +141,23 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
 
     // Référencements
     if (client.referralDate) {
+      // Robust advisor lookup
+      const advisorId = client.referredById || (client as any).referred_by_id;
+      const advisor = allProfiles.find(p => p.id === advisorId);
+      const advisorName = advisor ? `${advisor.firstName} ${advisor.lastName}` : 'Conseiller CFGT';
+      
       items.push({ 
         id: 'ref-1', 
         type: 'REFERRAL', 
         title: 'TRANSFERT VERS PARTENAIRE', 
         content: `Dossier transféré vers ${(allPartners || []).find(p => p.id === client.assignedPartnerId)?.name || 'organisme partenaire'}`, 
-        author: 'Conseiller CFGT', 
+        author: advisorName, 
         timestamp: client.referralDate 
       });
     }
 
     return items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [client.notes, allLogs, client.firstName, client.lastName, client.id, allSessions, client.referralDate, allPartners, client.assignedPartnerId]);
+  }, [client.notes, allLogs, client.firstName, client.lastName, client.id, allSessions, client.referralDate, allPartners, client.assignedPartnerId, client.referredById, allProfiles]);
 
   const availableTabs = useMemo(() => {
     const tabs = [
@@ -262,7 +267,8 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   const handleSecondaryUpdate = () => {
     onUpdate({
       ...client,
-      secondaryPartnerIds: selectedSecondaryIds
+      secondaryPartnerIds: selectedSecondaryIds,
+      referredById: currentUserId // Record who updated the distribution
     });
   };
 
@@ -658,8 +664,21 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                       <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">État d'avancement de la continuité des services</p>
                     </div>
                     {client.referralDate && (
-                      <div className="px-4 py-2 bg-purple-50 text-purple-600 rounded-2xl border border-purple-100 text-[10px] font-black uppercase tracking-widest">
-                        Référé le {new Date(client.referralDate).toLocaleDateString()}
+                      <div className="flex flex-col items-end gap-1">
+                        <div className="px-4 py-2 bg-purple-50 text-purple-600 rounded-2xl border border-purple-100 text-[10px] font-black uppercase tracking-widest">
+                          Référé le {new Date(client.referralDate).toLocaleDateString()}
+                        </div>
+                        {(() => {
+                          const advisorId = client.referredById || (client as any).referred_by_id;
+                          if (!advisorId) return null;
+                          const advisor = allProfiles.find(p => p.id === advisorId);
+                          if (!advisor) return null;
+                          return (
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">
+                              Par : {advisor.firstName} {advisor.lastName}
+                            </span>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>
@@ -794,7 +813,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                           onClick={handleSecondaryUpdate}
                           className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-purple-700 transition-all shadow-lg shadow-purple-100"
                         >
-                          <Share2 size={12} /> Confirmer les mandats complémentaires
+                          <Share2 size={12} /> Confirmer {client.referredById ? `par ${allProfiles.find(p => p.id === client.referredById)?.firstName || ''}` : 'le mandat'}
                         </button>
                       </div>
                     </div>

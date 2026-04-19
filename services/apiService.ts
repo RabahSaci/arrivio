@@ -8,6 +8,38 @@ const getHeaders = () => {
   };
 };
 
+// Utilities for casing conversion
+const snakeToCamel = (str: string) => str.replace(/([-_][a-z])/g, group => group.toUpperCase().replace('-', '').replace('_', ''));
+const camelToSnake = (str: string) => str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+
+const toCamel = (obj: any): any => {
+  if (Array.isArray(obj)) return obj.map(toCamel);
+  if (obj !== null && typeof obj === 'object' && !obj.constructor.toString().includes('Array')) {
+    const n: any = {};
+    for (const k in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, k)) {
+        n[snakeToCamel(k)] = toCamel(obj[k]);
+      }
+    }
+    return n;
+  }
+  return obj;
+};
+
+const toSnake = (obj: any): any => {
+  if (Array.isArray(obj)) return obj.map(toSnake);
+  if (obj !== null && typeof obj === 'object' && !obj.constructor.toString().includes('Array')) {
+    const n: any = {};
+    for (const k in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, k)) {
+        n[camelToSnake(k)] = toSnake(obj[k]);
+      }
+    }
+    return n;
+  }
+  return obj;
+};
+
 export const apiService = {
   // --- Auth ---
   async login(email, password) {
@@ -19,9 +51,10 @@ export const apiService = {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Erreur d'authentification");
     
-    localStorage.setItem('arrivio_token', data.session.access_token);
-    localStorage.setItem('arrivio_user', JSON.stringify(data.user));
-    return data;
+    const formattedData = toCamel(data);
+    localStorage.setItem('arrivio_token', formattedData.session.accessToken);
+    localStorage.setItem('arrivio_user', JSON.stringify(formattedData.user));
+    return formattedData;
   },
 
   async logout() {
@@ -94,11 +127,22 @@ export const apiService = {
   },
 
   // --- Data ---
-  async fetchTable(table: string) {
+  async fetchTable(table: string, params?: Record<string, any>) {
     const headers = getHeaders();
-    const response = await fetch(`${API_BASE_URL}/${table}`, { headers });
+    let url = `${API_BASE_URL}/${table}`;
+    if (params) {
+      const filteredParams = Object.fromEntries(
+        Object.entries(params).filter(([_, v]) => v !== undefined && v !== null && v !== '')
+      );
+      if (Object.keys(filteredParams).length > 0) {
+        const query = new URLSearchParams(filteredParams as Record<string, string>).toString();
+        url += `?${query}`;
+      }
+    }
+    const response = await fetch(url, { headers, cache: 'no-store' });
     if (!response.ok) throw new Error(`Erreur lors de la récupération de ${table}`);
-    return response.json();
+    const data = await response.json();
+    return toCamel(data);
   },
 
   async create(table: string, data: any) {
@@ -106,11 +150,11 @@ export const apiService = {
     const response = await fetch(`${API_BASE_URL}/${table}`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(data),
+      body: JSON.stringify(toSnake(data)),
     });
     const resData = await response.json();
     if (!response.ok) throw new Error(resData.error || `Erreur lors de la création dans ${table}`);
-    return resData;
+    return toCamel(resData);
   },
 
   async update(table: string, id: string | number, data: any) {
@@ -118,11 +162,11 @@ export const apiService = {
     const response = await fetch(`${API_BASE_URL}/${table}/${id}`, {
       method: 'PUT',
       headers,
-      body: JSON.stringify(data),
+      body: JSON.stringify(toSnake(data)),
     });
     const resData = await response.json();
     if (!response.ok) throw new Error(resData.error || `Erreur lors de la mise à jour de ${table}`);
-    return resData;
+    return toCamel(resData);
   },
 
   async delete(table: string, id: string | number) {
@@ -133,6 +177,18 @@ export const apiService = {
     });
     if (!response.ok) throw new Error(`Erreur lors de la suppression dans ${table}`);
     return response.json();
+  },
+
+  async markMessagesAsRead(otherParticipantId: string) {
+    const headers = getHeaders();
+    const response = await fetch(`${API_BASE_URL}/messages/mark-read`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ otherParticipantId }),
+    });
+    const resData = await response.json();
+    if (!response.ok) throw new Error(resData.error || "Erreur lors de la mise à jour du statut de lecture");
+    return resData;
   },
 
   async bulkCreateClients(clients: any[]) {
@@ -223,6 +279,59 @@ export const apiService = {
 
     const resData = await response.json();
     if (!response.ok) throw new Error(resData.error || `Erreur lors de l'importation massive`);
+    return resData;
+  },
+
+  async bulkCreateSessions(sessions: any[]) {
+    const headers = getHeaders();
+    const mappedSessions = sessions.map(s => ({
+      title: s.title,
+      type: s.type,
+      category: s.category,
+      date: s.date,
+      start_time: s.startTime,
+      duration: s.duration,
+      participant_ids: s.participantIds,
+      no_show_ids: s.noShowIds,
+      location: s.location,
+      notes: s.notes,
+      facilitator_name: s.facilitatorName,
+      facilitator_type: s.facilitatorType,
+      advisor_name: s.advisorName,
+      discussed_needs: s.discussedNeeds,
+      actions: s.actions,
+      contract_id: s.contractId,
+      individual_status: s.individualStatus,
+      needs_interpretation: s.needsInterpretation,
+      created_by_id: s.created_by_id,
+      created_at: s.created_at || new Date().toISOString()
+    }));
+
+    const response = await fetch(`${API_BASE_URL}/sessions/bulk`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(mappedSessions),
+    });
+
+    const resData = await response.json();
+    if (!response.ok) {
+      const error: any = new Error(resData.error || `Erreur lors de l'importation massive des séances`);
+      error.details = resData;
+      throw error;
+    }
+    return resData;
+  },
+
+  async bulkUpdateClients(updates: any[]) {
+    const headers = getHeaders();
+    const response = await fetch(`${API_BASE_URL}/clients/bulk-update`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(updates.map(toSnake)),
+    });
+
+    const resData = await response.json();
+    if (!response.ok) throw new Error(resData.error || `Erreur lors de la mise à jour massive`);
     return resData;
   }
 };

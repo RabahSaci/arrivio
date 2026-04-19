@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserRole, Notification as AppNotification, NotificationType } from '../types';
+import { UserRole, Notification as AppNotification, NotificationType, WorkflowTask, TaskStatus } from '../types';
 import { ROLE_LABELS } from '../constants';
 import { apiService } from '../services/apiService';
 import NotificationCenter from './NotificationCenter';
@@ -32,7 +32,8 @@ import {
   Settings,
   MessageSquare,
   Zap,
-  ZapOff
+  ZapOff,
+  ClipboardList
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -47,6 +48,7 @@ interface LayoutProps {
   onClearAllNotifications: () => void;
   onNotificationSelect: (notif: AppNotification) => void;
   currentUserId: string;
+  tasks?: WorkflowTask[];
 }
 
 const Layout: React.FC<LayoutProps> = ({ 
@@ -59,7 +61,8 @@ const Layout: React.FC<LayoutProps> = ({
   onClearNotification,
   onClearAllNotifications,
   onNotificationSelect,
-  currentUserId
+  currentUserId,
+  tasks = []
 }) => {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
@@ -95,7 +98,7 @@ const Layout: React.FC<LayoutProps> = ({
       try {
         const data = await apiService.fetchTable('app_settings');
         const settings = Array.isArray(data) ? data[0] : data;
-        if (settings?.logo_url) setCustomLogoUrl(settings.logo_url);
+        if (settings?.logoUrl) setCustomLogoUrl(settings.logoUrl);
       } catch (e) {
         // Ignore if table doesn't exist yet
       }
@@ -113,7 +116,7 @@ const Layout: React.FC<LayoutProps> = ({
     const fetchUnread = async () => {
       try {
         const msgs = await apiService.fetchTable('messages');
-        const unreadCount = (msgs || []).filter((m: any) => m.receiver_id === currentUserId && !m.is_read).length;
+        const unreadCount = (msgs || []).filter((m: any) => m.receiverId === currentUserId && !m.isRead).length;
         setUnreadMessages(unreadCount);
       } catch (e) {
         console.warn("Erreur messages unread", e);
@@ -122,8 +125,8 @@ const Layout: React.FC<LayoutProps> = ({
 
     fetchUnread();
 
-    // To comply with "no direct communication", we use polling (30s) instead of Supabase Realtime
-    const interval = setInterval(fetchUnread, 30000);
+    // To comply with "no direct communication", we use polling (10s) instead of Supabase Realtime
+    const interval = setInterval(fetchUnread, 10000);
 
     // Listen for local updates from Messaging component
     const handleMessageRead = () => fetchUnread();
@@ -189,6 +192,7 @@ const Layout: React.FC<LayoutProps> = ({
 
   const menuItems = [
     { id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, roles: [UserRole.ADVISOR, UserRole.MANAGER, UserRole.ADMIN] },
+    { id: 'tasks', label: 'Mes tâches', icon: ClipboardList, roles: [UserRole.ADVISOR, UserRole.ADMIN] },
     { id: 'clients', label: 'Gestion Clients', icon: Users, roles: [UserRole.ADVISOR, UserRole.ADMIN, UserRole.PARTNER] },
     { id: 'jobmatching', label: 'Matching Emploi', icon: Target, roles: [UserRole.ADVISOR, UserRole.MANAGER, UserRole.ADMIN] },
     { id: 'activitymatching', label: 'Matching Activités', icon: Sparkles, roles: [UserRole.ADVISOR, UserRole.MANAGER, UserRole.ADMIN] },
@@ -248,19 +252,19 @@ const Layout: React.FC<LayoutProps> = ({
       {/* Sidebar - SLDS Theme */}
       <aside className="w-64 flex flex-col fixed h-full z-20">
         {/* Logo Container */}
-        <div className="p-10 pb-6 flex flex-col items-center justify-center">
+        <div className="pt-6 px-8 pb-4 flex flex-col items-center justify-center">
           {customLogoUrl ? (
             <img 
               src={customLogoUrl} 
               alt="Arrivio Logo" 
-              className="h-24 w-auto max-w-full object-contain" 
+              className="h-24 w-auto max-w-full object-contain drop-shadow-sm" 
               onError={() => setCustomLogoUrl(null)}
             />
           ) : !logoError ? (
             <img 
               src="logo.png" 
               alt="Arrivio Logo" 
-              className="h-24 w-auto max-w-full object-contain" 
+              className="h-24 w-auto max-w-full object-contain drop-shadow-sm" 
               onError={() => setLogoError(true)}
             />
           ) : (
@@ -284,7 +288,14 @@ const Layout: React.FC<LayoutProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <item.icon size={18} />
+                  <div className="relative">
+                    <item.icon size={18} />
+                    {item.id === 'tasks' && tasks.filter(t => t.status === TaskStatus.PENDING && (activeRole === UserRole.ADMIN || t.assignedToId === currentUserId)).length > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-[8px] flex items-center justify-center rounded-full border-2 border-white">
+                        {tasks.filter(t => t.status === TaskStatus.PENDING && (activeRole === UserRole.ADMIN || t.assignedToId === currentUserId)).length}
+                      </span>
+                    )}
+                  </div>
                   {item.label}
                 </div>
               </button>

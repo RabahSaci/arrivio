@@ -1,4 +1,4 @@
-import { Session, Client, Contract, WorkflowTask, TaskStatus, TaskPriority, TaskType, SessionCategory } from '../types';
+import { Session, Client, Contract, Profile, WorkflowTask, TaskStatus, TaskPriority, TaskType, SessionCategory, SessionType } from '../types';
 
 /**
  * Génère une signature unique pour identifier si une tâche a déjà été créée pour un objet.
@@ -12,6 +12,7 @@ export const refreshAutomatedTasks = (
   allSessions: Session[],
   allClients: Client[],
   allContracts: Contract[],
+  allProfiles: Profile[],
   existingTasks: WorkflowTask[],
   currentUserName: string,
   currentUserId: string
@@ -19,6 +20,13 @@ export const refreshAutomatedTasks = (
   const newTasks: WorkflowTask[] = [...existingTasks];
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];
+
+  // Helper to find advisor name
+  const getAdvisorInfo = (id: string | null | undefined) => {
+    if (!id) return { id: currentUserId, name: currentUserName };
+    const p = allProfiles.find(prof => prof.id === id);
+    return p ? { id: p.id, name: `${p.firstName} ${p.lastName}` } : { id: currentUserId, name: currentUserName };
+  };
 
   // 1. SCAN SESSIONS (Webinaires terminés sans participants)
   allSessions.forEach(session => {
@@ -34,6 +42,7 @@ export const refreshAutomatedTasks = (
           if (!alreadyExists) {
             const timeDiff = now.getTime() - sessionDate.getTime();
             const hoursPassed = timeDiff / (1000 * 3600);
+            const adv = getAdvisorInfo(session.advisorId);
             
             newTasks.push({
               id: `task-session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -42,8 +51,8 @@ export const refreshAutomatedTasks = (
               description: `La séance du ${session.date} est terminée. Veuillez téléverser la liste des participants.`,
               status: TaskStatus.PENDING,
               priority: hoursPassed > 24 ? TaskPriority.CRITICAL : TaskPriority.HIGH,
-              assignedToId: session.advisorId || currentUserId,
-              assignedToName: session.advisorName || currentUserName,
+              assignedToId: adv.id,
+              assignedToName: adv.name,
               relatedEntityId: session.id,
               relatedEntityType: 'SESSION',
               dueDate: todayStr,
@@ -65,6 +74,7 @@ export const refreshAutomatedTasks = (
           const alreadyExists = existingTasks.some(t => t.processedSignature === signature);
 
           if (!alreadyExists) {
+            const adv = getAdvisorInfo(session.advisorId);
             newTasks.push({
               id: `task-indiv-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               type: 'FILL_SESSION_FOLLOWUP',
@@ -72,8 +82,8 @@ export const refreshAutomatedTasks = (
               description: `La séance individuelle du ${session.date} est terminée. Merci de procéder à la saisie des informations sur iEDEC.`,
               status: TaskStatus.PENDING,
               priority: TaskPriority.HIGH,
-              assignedToId: session.advisorId || currentUserId,
-              assignedToName: session.advisorName || currentUserName,
+              assignedToId: adv.id,
+              assignedToName: adv.name,
               relatedEntityId: session.id,
               relatedEntityType: 'SESSION',
               dueDate: todayStr,
@@ -86,34 +96,88 @@ export const refreshAutomatedTasks = (
     }
   });
 
-  // 2. SCAN CLIENTS (Arrivée imminente <= 15 jours)
+  // 2. SCAN CLIENTS (Cibles: Statut EN_ATTENTE + Séance Établissement)
   allClients.forEach(client => {
-    if (client.arrivalDate && client.status !== 'REFERE' && client.status !== 'FERME') {
-      const arrivalDate = new Date(client.arrivalDate);
-      const timeDiff = arrivalDate.getTime() - now.getTime();
-      const daysLeft = Math.ceil(timeDiff / (1000 * 3600 * 24));
+    // Si le client est en attente de référencement
+    if (client.status === 'EN_ATTENTE') {
+      const signature = generateSignature('REFER_CLIENT', client.id);
+      const alreadyExists = existingTasks.some(t => t.processedSignature === signature);
 
-      if (daysLeft <= 15 && daysLeft >= -5) { // Uniquement si c'est proche (jusqu'à 5 jours après)
-        const signature = generateSignature('REFER_CLIENT', client.id);
-        const alreadyExists = existingTasks.some(t => t.processedSignature === signature);
+      if (!alreadyExists) {
+        // A. Trouvons la séance "Établissement" Individuelle la plus récente de ce client
+        const establishmentSessions = allSessions
+          .filter(s => 
+            s.type === SessionType.ESTABLISHMENT && 
+            s.category === SessionCategory.INDIVIDUAL && 
+            s.participantIds?.includes(client.id)
+          )
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-        if (!alreadyExists) {
-          newTasks.push({
-            id: `task-client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            type: 'REFER_CLIENT',
-            title: `Référencement urgent : ${client.firstName} ${client.lastName}`,
-            description: `Le client arrive le ${client.arrivalDate} (${daysLeft} jours restants). Veuillez procéder au référencement.`,
-            status: TaskStatus.PENDING,
-            priority: daysLeft <= 3 ? TaskPriority.CRITICAL : TaskPriority.HIGH,
-            assignedToId: currentUserId, // On assigne à l'utilisateur courant ou à un gestionnaire
-            assignedToName: currentUserName,
-            relatedEntityId: client.id,
-            relatedEntityType: 'CLIENT',
-            dueDate: todayStr,
-            createdAt: now.toISOString(),
-            processedSignature: signature
+        const lastSession = establishmentSessions[0];
+
+        // RÈGLE : Pas de tâche si aucune séance établissement trouvée
+        if (!lastSession) return;
+
+        // B. Identifions le conseiller responsable
+        let assignedToId = '';
+        let assignedToName = '';
+
+        if (lastSession.advisorId) {
+          const advInfo = getAdvisorInfo(lastSession.advisorId);
+          assignedToId = advInfo.id;
+          assignedToName = advInfo.name;
+        } else if (lastSession.advisorName) {
+          // Tentative de matching par nom (robuste)
+          const queryName = lastSession.advisorName.toLowerCase().trim();
+          const matchedProfile = allProfiles.find(p => {
+            const fullName = `${p.firstName} ${p.lastName}`.toLowerCase().trim();
+            return fullName === queryName || p.email.toLowerCase() === queryName || p.firstName.toLowerCase() === queryName;
           });
+
+          if (matchedProfile) {
+            assignedToId = matchedProfile.id;
+            assignedToName = `${matchedProfile.firstName} ${matchedProfile.lastName}`;
+          }
         }
+
+        // Fallback final si mapping échoue
+        if (!assignedToId) {
+          const fallback = getAdvisorInfo(client.referredById || (client as any).referred_by_id);
+          assignedToId = fallback.id;
+          assignedToName = fallback.name;
+        }
+
+        let daysLeft = 999;
+        if (client.arrivalDate) {
+          const arrivalDate = new Date(client.arrivalDate);
+          const timeDiff = arrivalDate.getTime() - now.getTime();
+          daysLeft = Math.ceil(timeDiff / (1000 * 3600 * 24));
+        }
+
+        // Détermination de la priorité
+        let priority = TaskPriority.MEDIUM;
+        if (daysLeft <= 3) priority = TaskPriority.CRITICAL;
+        else if (daysLeft <= 15) priority = TaskPriority.HIGH;
+
+        newTasks.push({
+          id: `task-client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type: 'REFER_CLIENT',
+          title: `Référencement à faire : ${client.firstName} ${client.lastName}`,
+          description: lastSession 
+            ? `Client rencontré lors de la séance "${lastSession.title}" le ${lastSession.date}.`
+            : client.arrivalDate 
+              ? `Le client arrive le ${client.arrivalDate}.`
+              : `Client en attente de référencement.`,
+          status: TaskStatus.PENDING,
+          priority: priority,
+          assignedToId: assignedToId,
+          assignedToName: assignedToName,
+          relatedEntityId: client.id,
+          relatedEntityType: 'CLIENT',
+          dueDate: todayStr,
+          createdAt: now.toISOString(),
+          processedSignature: signature
+        });
       }
     }
   });

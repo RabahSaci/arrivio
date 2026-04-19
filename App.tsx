@@ -18,6 +18,8 @@ import AccountManagement from './views/AccountManagement';
 import Reports from './views/Reports';
 import Settings from './views/Settings';
 import Messaging from './views/Messaging';
+import TaskDashboard from './views/TaskDashboard';
+import { refreshAutomatedTasks, purgeOldTasks } from './services/taskService';
 import { 
   UserRole, 
   Client, 
@@ -31,10 +33,12 @@ import {
   Profile, 
   Partner, 
   PartnerType,
-  AttendanceStatus 
+  AttendanceStatus,
+  WorkflowTask,
+  TaskStatus
 } from './types';
 import { apiService } from './services/apiService';
-import { Database, AlertTriangle, RefreshCcw } from 'lucide-react';
+import { Database, AlertTriangle, RefreshCcw, LayoutDashboard, ClipboardList } from 'lucide-react';
 import { INACTIVITY_LIMIT } from './constants';
 
 const App: React.FC = () => {
@@ -54,12 +58,13 @@ const App: React.FC = () => {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [tasks, setTasks] = useState<WorkflowTask[]>([]);
   
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
 
-  // Ref pour suivre la dernière activité
   const lastActivityRef = useRef<number>(Date.now());
 
   const handleLogout = useCallback(async () => {
@@ -69,26 +74,17 @@ const App: React.FC = () => {
     setCurrentUserId("");
   }, []);
 
-  // Surveillance de l'inactivité
   useEffect(() => {
     if (!isLoggedIn) return;
-
-    // Réinitialiser le compteur au montage (connexion)
     lastActivityRef.current = Date.now();
-
-    const updateActivity = () => {
-      lastActivityRef.current = Date.now();
-    };
-
+    const updateActivity = () => { lastActivityRef.current = Date.now(); };
     const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
     events.forEach(event => window.addEventListener(event, updateActivity));
-
     const checkInactivity = setInterval(() => {
       if (Date.now() - lastActivityRef.current > INACTIVITY_LIMIT) {
         handleLogout();
       }
-    }, 10000); // Vérification toutes les 10 secondes
-
+    }, 10000);
     return () => {
       events.forEach(event => window.removeEventListener(event, updateActivity));
       clearInterval(checkInactivity);
@@ -96,16 +92,33 @@ const App: React.FC = () => {
   }, [isLoggedIn, handleLogout]);
 
   useEffect(() => {
+    if (isLoggedIn) {
+      setTasks(prevTasks => {
+        const purged = purgeOldTasks(prevTasks);
+        return refreshAutomatedTasks(
+          sessions,
+          clients,
+          contracts,
+          profiles,
+          purged,
+          currentUserName,
+          currentUserId
+        );
+      });
+    }
+  }, [sessions, clients, contracts, profiles, isLoggedIn, currentUserName, currentUserId]);
+
+  const handleUpdateTask = (updatedTask: WorkflowTask) => {
+    setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
+  };
+
+  useEffect(() => {
     const checkSession = async () => {
+      if (!localStorage.getItem('arrivio_token')) return;
       const isAuthenticated = await apiService.getSessionStatus();
       if (isAuthenticated) {
-        // We don't have the user ID easily if it's not in localStorage.
-        // Let's assume the status check might return user data or we store user_id too.
         const token = localStorage.getItem('arrivio_token');
         if (token) {
-          // Decode JWT to get user id or just rely on the fact that we can fetch profiles/me
-          // For now, let's just use the profile fetch logic if we had the ID.
-          // Better: Let's store user info in localStorage alongside token for BFF.
           const savedUser = localStorage.getItem('arrivio_user');
           if (savedUser) {
             const user = JSON.parse(savedUser);
@@ -117,19 +130,20 @@ const App: React.FC = () => {
     checkSession();
   }, []);
 
+  React.useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [selectedClientId, activeTab]);
+
   const loadUserProfile = async (userId: string) => {
     try {
       const data = await apiService.fetchTable('profiles');
-      // fetchTable returns all, but RLS on profiles will only return the current user's profile
-      // if we set it up that way.
       const profile = Array.isArray(data) ? data.find(p => p.id === userId) : data;
-      
       if (profile) {
         handleLogin(
           profile.role as UserRole, 
           userId, 
-          `${profile.first_name} ${profile.last_name}`, 
-          profile.partner_id
+          `${profile.firstName} ${profile.lastName}`, 
+          profile.partnerId
         );
       } else {
         handleLogin(UserRole.ADVISOR, userId, "Utilisateur");
@@ -145,16 +159,11 @@ const App: React.FC = () => {
     setCurrentUserName(userName);
     setCurrentPartnerId(partnerId);
     setIsLoggedIn(true);
-    
-    // Sécurité : Réinitialiser l'onglet si l'utilisateur n'y a pas accès
-    // (ex: un admin se déconnecte depuis les paramètres, un conseiller se connecte)
     if (role !== UserRole.ADMIN && (activeTab === 'settings' || activeTab === 'accounts' || activeTab === 'payments')) {
       setActiveTab('sessions');
     } else if (role === UserRole.PARTNER && activeTab === 'sessions') {
       setActiveTab('clients');
     }
-
-    // Initialiser l'activité à la connexion
     lastActivityRef.current = Date.now();
     logActivity('LOGIN', 'PROFILE', `Connexion de l'utilisateur ${userName}`);
   };
@@ -187,7 +196,7 @@ const App: React.FC = () => {
   const fetchLogs = async () => {
     try {
       const data = await apiService.fetchTable('activity_logs');
-      if (data) {
+      if (Array.isArray(data)) {
         setActivityLogs(data.map((l: any) => ({
           id: l.id,
           userId: l.user_id,
@@ -207,224 +216,89 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      // Use allSettled so one failing table never blocks the others
       const [
-        resClients,
-        resSessions,
         resMentors,
         resContracts,
         resProfiles,
         resPartners,
-        resNotes,
+        resClients,
+        resSessions,
+        resLogs
       ] = await Promise.allSettled([
-        apiService.fetchTable('clients'),
-        apiService.fetchTable('sessions'),
         apiService.fetchTable('mentors'),
         apiService.fetchTable('contracts'),
         apiService.fetchTable('profiles'),
         apiService.fetchTable('partners'),
-        apiService.fetchTable('notes'),
+        apiService.fetchTable('clients'),
+        apiService.fetchTable('sessions'),
+        apiService.fetchTable('activity_logs'),
       ]);
 
-      // Helper to extract value or log warning on failure
       const safeGet = (result: PromiseSettledResult<any>, name: string) => {
         if (result.status === 'fulfilled') return result.value;
         console.warn(`[fetchData] Failed to fetch '${name}':`, result.reason?.message);
         return null;
       };
 
-      const clientsData   = safeGet(resClients,   'clients');
-      const sessionsData  = safeGet(resSessions,  'sessions');
       const mentorsData   = safeGet(resMentors,   'mentors');
       const contractsData = safeGet(resContracts, 'contracts');
       const profilesData  = safeGet(resProfiles,  'profiles');
       const partnersData  = safeGet(resPartners,  'partners');
-      const notesData     = safeGet(resNotes,     'notes');
+      const clientsData   = safeGet(resClients,   'clients');
+      const sessionsData  = safeGet(resSessions,  'sessions');
+      const logsData      = safeGet(resLogs,      'activity_logs');
 
-      const allSessions = sessionsData || [];
-      const allNotes    = notesData    || [];
+      const normalizePartnerType = (raw: string): PartnerType => {
+        const val = (raw || '').toUpperCase().trim();
+        if (val === 'CONSULTANT') return PartnerType.CONSULTANT;
+        if (val === 'INTERNE' || val === 'INTERNAL') return PartnerType.INTERNAL;
+        if (val === 'COLLABORATION_EXTERNE' || val === 'EXTERNAL') return PartnerType.EXTERNAL;
+        return PartnerType.EXTERNAL;
+      };
 
-      if (clientsData) {
-        setClients(clientsData.map((c: any) => {
-          const clientSessions = allSessions.filter((s: any) => s.participant_ids?.includes(c.id));
-          let validSessionsCount = 0;
-          let noShowsCount = 0;
-          clientSessions.forEach((s: any) => {
-            if (s.category === 'INDIVIDUELLE') {
-              if (s.individual_status === 'PRESENT' || s.individual_status === 'ABSENT') {
-                validSessionsCount++;
-                if (s.individual_status === 'ABSENT') noShowsCount++;
-              }
-            } else {
-              validSessionsCount++;
-              if (s.no_show_ids?.includes(c.id)) noShowsCount++;
-            }
-          });
-          const ratio = validSessionsCount > 0 ? Math.round((noShowsCount / validSessionsCount) * 100) : 0;
-          return {
-            id: c.id,
-            clientCode: c.client_code,
-            registrationDate: c.registration_date,
-            firstName: c.first_name || '',
-            lastName: c.last_name || '',
-            birthDate: c.birth_date,
-            gender: c.gender,
-            residenceCountry: c.residence_country,
-            birthCountry: c.birth_country,
-            iucCrpNumber: c.iuc_crp_number,
-            email: c.email || '',
-            phoneNumber: c.phone_number,
-            participatedImmigrationProgram: c.participated_immigration_program,
-            immigrationType: c.immigration_type,
-            linkedAccount: c.linked_account,
-            mainApplicant: c.main_applicant,
-            spouseFullName: c.spouse_full_name,
-            spouseBirthDate: c.spouse_birth_date,
-            spouseEmail: c.spouse_email,
-            spouseIucCrpNumber: c.spouse_iuc_crp_number,
-            childrenCount: c.children_count,
-            childrenBirthDates: c.children_birth_dates,
-            childrenFullNames: c.children_full_names,
-            chosenProvince: c.chosen_province,
-            destinationChange: c.destination_change,
-            chosenCity: c.chosen_city,
-            arrivalDateApprox: c.arrival_date_approx,
-            arrivalDateConfirmed: c.arrival_date_confirmed,
-            establishmentReason: c.establishment_reason,
-            currentJob: c.current_job,
-            currentEmploymentStatus: c.current_employment_status,
-            currentNocGroup: c.current_noc_group,
-            currentProfessionGroup: c.current_profession_group,
-            intendedEmploymentStatusCanada: c.intended_employment_status_canada,
-            intendedProfessionGroupCanada: c.intended_profession_group_canada,
-            intentionCredentialsRecognition: c.intention_credentials_recognition,
-            intentionAccreditationBeforeArrival: c.intention_accreditation_before_arrival,
-            doneEca: c.done_eca,
-            educationLevel: c.education_level,
-            specialization: c.specialization,
-            trainingCompletionDate: c.training_completion_date,
-            englishLevel: c.english_level,
-            wantEnglishInfo: c.want_english_info,
-            frenchLevel: c.french_level,
-            wantFrenchInfo: c.want_french_info,
-            referralSource: c.referral_source,
-            marketingConsent: c.marketing_consent,
-            isApproved: c.is_approved,
-            isProfileCompleted: c.is_profile_completed,
-            referralDate: c.referral_date,
-            questions: c.questions,
-            originCountry: c.origin_country || '',
-            profession: c.profession || '',
-            destinationCity: c.destination_city || '',
-            arrivalDate: c.arrival_date || new Date().toISOString(),
-            needs: c.needs || [],
-            status: (c.status as ReferralStatus) || ReferralStatus.PENDING,
-            consentShared: !!c.consent_shared,
-            consentExternalReferral: !!c.consent_external_referral,
-            isUnsubscribed: !!c.is_unsubscribed,
-            assignedPartnerId: c.assigned_partner_id,
-            secondaryPartnerIds: c.secondary_partner_ids || [],
-            assignedMentorId: c.assigned_mentor_id,
-            acknowledgedAt: c.acknowledged_at,
-            contactedAt: c.contacted_at,
-            closedAt: c.closed_at,
-            noShowRatio: ratio,
-            notes: allNotes
-              .filter((n: any) => n.client_id === c.id)
-              .map((n: any) => ({ id: n.id, authorName: n.author_name, content: n.content, timestamp: n.timestamp }))
-          };
-        }));
-      }
+      const mappedPartners = partnersData.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        city: p.city,
+        province: p.province,
+        specialties: p.specialties || [],
+        type: normalizePartnerType(p.type)
+      }));
+      setPartners(mappedPartners);
 
-      if (sessionsData) {
-        setSessions(sessionsData.map((s: any) => ({
-          id: s.id,
-          title: s.title,
-          type: s.type,
-          category: s.category,
-          date: s.date,
-          startTime: s.start_time,
-          duration: s.duration,
-          participantIds: s.participant_ids || [],
-          noShowIds: s.no_show_ids || [],
-          location: s.location,
-          notes: s.notes || '',
-          facilitatorName: s.facilitator_name,
-          facilitatorType: s.facilitator_type,
-          advisorName: s.advisor_name,
-          contractId: s.contract_id,
-          individualStatus: s.individual_status,
-          discussedNeeds: s.discussed_needs,
-          actions: s.actions,
-          zoomLink: s.zoom_link,
-          needsInterpretation: !!s.needs_interpretation,
-          invoiceReceived: !!s.invoice_received,
-          invoiceSubmitted: !!s.invoice_submitted,
-          invoicePaid: !!s.invoice_paid,
-          invoiceAmount: s.invoice_amount || 0
+      setMentors(mentorsData.map((m: any) => ({
+        id: m.id,
+        firstName: m.firstName,
+        lastName: m.lastName,
+        profession: m.profession,
+        city: m.city,
+        domain: m.domain,
+        originCountry: m.originCountry,
+        organizationId: m.organizationId
+      })));
+
+      setContracts(contractsData.map((con: any) => ({
+        id: con.id,
+        consultantName: con.consultantName,
+        totalSessions: con.totalSessions || 0,
+        usedSessions: con.usedSessions || 0,
+        startDate: con.startDate,
+        endDate: con.endDate,
+        status: con.status as any,
+        amount: con.amount || 0
+      })));
+
+      if (Array.isArray(clientsData)) {
+        setClients(clientsData.map((c: any) => ({
+          ...c,
+          chosenCity: c.chosenCity || c.chosenProvince,
+          residenceCountry: c.residenceCountry || c.birthCountry,
+          currentJob: c.currentJob || c.currentProfessionGroup
         })));
       }
-
-      if (partnersData) {
-        const normalizePartnerType = (raw: string): PartnerType => {
-          const val = (raw || '').toUpperCase().trim();
-          if (val === 'CONSULTANT') return PartnerType.CONSULTANT;
-          if (val === 'INTERNE' || val === 'INTERNAL') return PartnerType.INTERNAL;
-          if (val === 'COLLABORATION_EXTERNE' || val === 'EXTERNAL') return PartnerType.EXTERNAL;
-          return PartnerType.EXTERNAL;
-        };
-        const mappedPartners = partnersData.map((p: any) => ({
-          id: p.id,
-          name: p.name,
-          city: p.city,
-          province: p.province,
-          specialties: p.specialties || [],
-          type: normalizePartnerType(p.type)
-        }));
-
-        setPartners(mappedPartners);
-      }
-
-      if (mentorsData) {
-        setMentors(mentorsData.map((m: any) => ({
-          id: m.id,
-          firstName: m.first_name,
-          lastName: m.last_name,
-          profession: m.profession,
-          city: m.city,
-          domain: m.domain,
-          originCountry: m.origin_country,
-          organizationId: m.organization_id
-        })));
-      }
-
-      if (contractsData) {
-        setContracts(contractsData.map((con: any) => ({
-          id: con.id,
-          consultantName: con.consultant_name,
-          totalSessions: con.total_sessions || 0,
-          usedSessions: con.used_sessions || 0,
-          startDate: con.start_date,
-          endDate: con.end_date,
-          status: con.status as any,
-          amount: con.amount || 0,
-          serviceType: con.service_type
-        })));
-      }
-
-      if (profilesData) {
-        setProfiles(profilesData.map((p: any) => ({
-          id: p.id,
-          firstName: p.first_name,
-          lastName: p.last_name,
-          email: p.email,
-          role: p.role as UserRole,
-          partnerId: p.partner_id,
-          position: p.position
-        })));
-      }
-
-      fetchLogs();
+      if (Array.isArray(sessionsData)) setSessions(sessionsData);
+      if (Array.isArray(logsData)) setActivityLogs(logsData);
+      if (Array.isArray(profilesData)) setProfiles(profilesData);
 
     } catch (err: any) {
       console.error("Erreur sync:", err);
@@ -490,7 +364,6 @@ const App: React.FC = () => {
         is_approved: newClient.isApproved,
         is_profile_completed: newClient.isProfileCompleted,
         referral_date: newClient.referralDate,
-        questions: newClient.questions,
         
         origin_country: newClient.originCountry,
         profession: newClient.profession,
@@ -538,6 +411,7 @@ const App: React.FC = () => {
         individual_status: newSession.individualStatus,
         contract_id: newSession.contractId,
         zoom_link: newSession.zoomLink,
+        zoom_id: newSession.zoomId,
         needs_interpretation: newSession.needsInterpretation,
         notes: newSession.notes
       });
@@ -553,10 +427,13 @@ const App: React.FC = () => {
     try {
       await apiService.update('sessions', session.id, {
         title: session.title,
+        type: session.type,
         date: session.date,
         start_time: session.startTime,
+        duration: session.duration,
         location: session.location,
         zoom_link: session.zoomLink,
+        zoom_id: session.zoomId,
         participant_ids: session.participantIds,
         no_show_ids: session.noShowIds,
         invoice_received: session.invoiceReceived,
@@ -566,7 +443,8 @@ const App: React.FC = () => {
         discussed_needs: session.discussedNeeds,
         actions: session.actions,
         notes: session.notes,
-        individual_status: session.individualStatus
+        individual_status: session.individualStatus,
+        advisor_id: session.advisorId
       });
       if (error) throw error;
       await logActivity('UPDATE', 'SESSION', `Modification de la séance : ${session.title}`);
@@ -581,9 +459,21 @@ const App: React.FC = () => {
     try {
       const sessionToDelete = sessions.find(s => s.id === sessionId);
       await apiService.delete('sessions', sessionId);
-      if (error) throw error;
       await logActivity('DELETE', 'SESSION', `Suppression de la séance : ${sessionToDelete?.title || sessionId}`);
       addNotification(NotificationType.SUCCESS, "Suppression effectuée", "La séance a été retirée du système.");
+      fetchData();
+    } catch (err: any) {
+      addNotification(NotificationType.SYSTEM, "Erreur Suppression", err.message);
+    }
+  };
+
+  const handleDeleteClient = async (clientId: string) => {
+    try {
+      const clientToDelete = clients.find(c => c.id === clientId);
+      await apiService.delete('clients', clientId);
+      await logActivity('DELETE', 'CLIENT', `Suppression du dossier client : ${clientToDelete?.firstName || ''} ${clientToDelete?.lastName || ''}`);
+      addNotification(NotificationType.SUCCESS, "Client supprimé", "Le dossier a été définitivement supprimé.");
+      setSelectedClientId(null);
       fetchData();
     } catch (err: any) {
       addNotification(NotificationType.SYSTEM, "Erreur Suppression", err.message);
@@ -644,23 +534,22 @@ const App: React.FC = () => {
        );
     }
 
-    if (selectedClientId) {
-      const clientToShow = clients.find(c => c.id === selectedClientId);
-      if (clientToShow) {
-        return (
-          <ClientDetails 
-            client={clientToShow} activeRole={activeRole} currentUserName={currentUserName}
-            allClients={clients} allSessions={sessions} allPartners={partners} allProfiles={profiles}
-            allLogs={activityLogs} 
-            onBack={() => setSelectedClientId(null)} 
-            onUpdate={async (u) => { 
-              const oldClient = clients.find(c => c.id === u.id);
+    if (selectedClient) {
+      return (
+        <ClientDetails 
+          client={selectedClient} activeRole={activeRole} currentUserName={currentUserName} currentUserId={currentUserId}
+          allClients={clients} allSessions={sessions} allPartners={partners} allProfiles={profiles}
+          allLogs={activityLogs} 
+          onBack={() => setSelectedClient(null)} 
+          onUpdate={async (u) => { 
+            try {
               await apiService.update('clients', u.id, { 
                 status: u.status, 
                 assigned_partner_id: u.assignedPartnerId,
-                secondary_partner_ids: u.secondaryPartnerIds, // Update Supabase avec le tableau
+                secondary_partner_ids: u.secondaryPartnerIds,
                 assigned_mentor_id: u.assignedMentorId,
                 referral_date: u.referralDate,
+                referred_by_id: u.referredById,
                 acknowledged_at: u.acknowledgedAt,
                 contacted_at: u.contactedAt,
                 closed_at: u.closedAt,
@@ -668,37 +557,73 @@ const App: React.FC = () => {
                 is_unsubscribed: u.isUnsubscribed
               }); 
               
-              let logMsg = `Mise à jour du dossier ${u.firstName} ${u.lastName}.`;
-              if (oldClient?.status !== u.status) logMsg += ` Statut : ${oldClient?.status} -> ${u.status}.`;
-              if (oldClient?.assignedPartnerId !== u.assignedPartnerId) {
-                const pName = partners.find(p => p.id === u.assignedPartnerId)?.name || 'Inconnu';
-                logMsg += ` Assigné principal à : ${pName}.`;
-              }
-              if (JSON.stringify(oldClient?.secondaryPartnerIds) !== JSON.stringify(u.secondaryPartnerIds)) {
-                logMsg += ` Mise à jour des référencements secondaires.`;
-              }
-              
-              await logActivity('UPDATE', 'CLIENT', logMsg);
-              fetchData(); 
-            }} 
-            onAddNote={async (id, content) => { 
-              await apiService.create('notes', { client_id: id, author_name: currentUserName, content, timestamp: new Date().toISOString() }); 
-              await logActivity('UPDATE', 'CLIENT', `Ajout d'une note sur le dossier de ${clientToShow.firstName} ${clientToShow.lastName}`);
-              fetchData(); 
-            }}
-            onUpdateSession={handleUpdateSession}
-          />
-        );
-      }
+              setSelectedClient(u);
+              await logActivity('UPDATE', 'CLIENT', `Mise à jour du dossier ${u.firstName} ${u.lastName}.`);
+              addNotification(NotificationType.SUCCESS, "Mise à jour réussie", `Le dossier de ${u.firstName} ${u.lastName} a été mis à jour.`);
+            } catch (err: any) {
+              console.error("Erreur mise à jour client:", err);
+              addNotification(NotificationType.SYSTEM, "Erreur de mise à jour", err.message || "Une erreur est survenue lors de l'enregistrement.");
+            }
+          }} 
+          onAddNote={async (id, content) => { 
+            await apiService.create('notes', { client_id: id, author_name: currentUserName, content, timestamp: new Date().toISOString() }); 
+            await logActivity('UPDATE', 'CLIENT', `Ajout d'une note sur le dossier de ${selectedClient.firstName} ${selectedClient.lastName}`);
+          }}
+          onUpdateSession={handleUpdateSession}
+        />
+      );
     }
 
     switch (activeTab) {
       case 'dashboard': return <Dashboard clients={clients} partners={partners} sessions={sessions} activeRole={activeRole} currentUserId={currentUserId} />;
-      case 'clients': return <ClientList clients={clients} activeRole={activeRole} currentPartnerId={currentPartnerId} currentUserId={currentUserId} onSelectClient={(c) => setSelectedClientId(c.id)} onAddClient={handleAddClient} onBulkAddClients={handleBulkAddClients} />;
-      case 'jobmatching': return <JobMatching clients={clients} onSelectClient={(c) => setSelectedClientId(c.id)} />;
-      case 'activitymatching': return <ActivityMatching clients={clients} onSelectClient={(c) => setSelectedClientId(c.id)} />;
-      case 'sessions': return <SessionList clients={clients} sessions={sessions} partners={partners} contracts={contracts} activeRole={activeRole} currentUserName={currentUserName} onAddSession={handleAddSession} onUpdateSession={handleUpdateSession} onDeleteSession={handleDeleteSession} />;
-      case 'calendar': return <CalendarView clients={clients} sessions={sessions} partners={partners} contracts={contracts} activeRole={activeRole} currentUserName={currentUserName} onAddSession={handleAddSession} onUpdateSession={handleUpdateSession} onDeleteSession={handleDeleteSession} />;
+      case 'tasks': 
+        return (
+          <TaskDashboard 
+            tasks={tasks}
+            activeRole={activeRole}
+            currentUserId={currentUserId}
+            advisors={profiles.filter(u => u.role === UserRole.ADVISOR)}
+            onUpdateTask={handleUpdateTask}
+            onNavigateToEntity={(type, id) => {
+              if (type === 'SESSION') {
+                setActiveTab('sessions');
+              } else if (type === 'CLIENT') {
+                setActiveTab('clients');
+              }
+            }}
+          />
+        );
+      case 'clients': return (
+        <ClientList 
+          clients={clients}
+          activeRole={activeRole} 
+          currentPartnerId={currentPartnerId} 
+          currentUserId={currentUserId} 
+          onSelectClient={setSelectedClient} 
+          onAddClient={handleAddClient} 
+          onBulkAddClients={handleBulkAddClients} 
+          onDeleteClient={handleDeleteClient} 
+        />
+      );
+      case 'jobmatching': return <JobMatching clients={clients} onSelectClient={setSelectedClient} />;
+      case 'activitymatching': return <ActivityMatching clients={clients} onSelectClient={setSelectedClient} />;
+      case 'sessions': return (
+        <SessionList 
+          clients={clients}
+          sessions={sessions}
+          partners={partners} 
+          contracts={contracts} 
+          activeRole={activeRole} 
+          currentUserName={currentUserName} 
+          currentUserId={currentUserId} 
+          onAddSession={handleAddSession} 
+          onUpdateSession={handleUpdateSession} 
+          onDeleteSession={handleDeleteSession} 
+          onSelectClient={setSelectedClient}
+          allProfiles={profiles} 
+        />
+      );
+      case 'calendar': return <CalendarView clients={clients} sessions={sessions} partners={partners} contracts={contracts} activeRole={activeRole} currentUserName={currentUserName} currentUserId={currentUserId} onAddSession={handleAddSession} onUpdateSession={handleUpdateSession} onDeleteSession={handleDeleteSession} allProfiles={profiles} />;
       case 'payments': return (
         <ContractManagement 
           contracts={contracts} 
@@ -727,7 +652,17 @@ const App: React.FC = () => {
           onDeleteSession={handleDeleteSession} 
         />
       );
-      case 'referrals': return <ReferralManagement clients={clients} partners={partners} sessions={sessions} activeRole={activeRole} currentPartnerId={currentPartnerId} currentUserId={currentUserId} />;
+      case 'referrals': return (
+        <ReferralManagement 
+          clients={clients}
+          sessions={sessions}
+          partners={partners} 
+          activeRole={activeRole} 
+          currentPartnerId={currentPartnerId} 
+          currentUserId={currentUserId}
+          onSelectClient={setSelectedClient}
+        />
+      );
       case 'reports': return <Reports clients={clients} sessions={sessions} partners={partners} activeRole={activeRole} currentPartnerId={currentPartnerId} />;
       case 'settings': 
         if (activeRole !== UserRole.ADMIN) return <Dashboard clients={clients} partners={partners} sessions={sessions} activeRole={activeRole} currentUserId={currentUserId} />;
@@ -801,7 +736,6 @@ const App: React.FC = () => {
               finalUserId = crypto.randomUUID();
             }
 
-            // Guard: ensure email is present before inserting
             const emailToSave = (p.email || '').toLowerCase().trim();
             if (!emailToSave) {
               addNotification(NotificationType.SYSTEM, "Erreur Création Compte", "L'adresse email est obligatoire pour créer un compte.");
@@ -843,6 +777,7 @@ const App: React.FC = () => {
       onClearNotification={(id) => setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n))}
       onClearAllNotifications={() => setNotifications(prev => prev.map(n => ({ ...n, isRead: true })))}
       onNotificationSelect={(n) => { if (n.targetId) { setSelectedClientId(n.targetId); setActiveTab('clients'); } }}
+      tasks={tasks}
     >
       {renderContent()}
     </Layout>

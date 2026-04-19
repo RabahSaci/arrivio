@@ -137,12 +137,12 @@ const SessionModal: React.FC<SessionModalProps> = ({
   const filteredClientsForSearch = useMemo(() => {
     if (!clientSearchQuery || clientSearchQuery.length < 2) return [];
     const query = clientSearchQuery.toLowerCase();
-    return (allProfiles || []).filter(c => 
+    return (clients || []).filter(c => 
       c.firstName?.toLowerCase().includes(query) ||
       c.lastName?.toLowerCase().includes(query) ||
       c.email?.toLowerCase().includes(query)
     ).slice(0, 10);
-  }, [allProfiles, clientSearchQuery]);
+  }, [clients, clientSearchQuery]);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -252,7 +252,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs font-bold text-slds-text-primary truncate">{c.firstName} {c.lastName}</p>
-                                <p className="text-[9px] text-slds-text-secondary font-bold uppercase truncate">{c.position || 'Profil'}</p>
+                                <p className="text-[9px] text-slds-text-secondary font-bold uppercase truncate">{ (c as any).profession || 'Client'}</p>
                               </div>
                               <ChevronRight size={14} className="text-slds-text-secondary" />
                             </button>

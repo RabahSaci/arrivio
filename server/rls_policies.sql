@@ -69,13 +69,14 @@ USING (
 
 -- 5. Politiques pour la table 'contracts'
 DROP POLICY IF EXISTS "Admin and management can see all contracts" ON contracts;
-CREATE POLICY "Admin and management can see all contracts" 
+DROP POLICY IF EXISTS "Admin, management and advisors can see all contracts" ON contracts;
+CREATE POLICY "Admin, management and advisors can see all contracts" 
 ON contracts FOR ALL TO authenticated 
 USING (
   EXISTS (
     SELECT 1 FROM profiles 
     WHERE profiles.id = auth.uid() 
-    AND profiles.role IN ('ADMINISTRATEUR', 'GESTIONNAIRE')
+    AND profiles.role IN ('ADMINISTRATEUR', 'GESTIONNAIRE', 'CONSEILLER_CFGT')
   )
 );
 

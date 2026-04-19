@@ -17,11 +17,13 @@ CREATE TABLE IF NOT EXISTS sessions (
   facilitator_name TEXT,
   facilitator_type facilitator_type,
   advisor_name TEXT,
+  advisor_id UUID REFERENCES auth.users(id),
   contract_id UUID REFERENCES contracts(id) ON DELETE SET NULL, -- Nouveau lien
   individual_status attendance_status,
   discussed_needs TEXT,
   actions TEXT,
   zoom_link TEXT,
+  zoom_id TEXT,
   needs_interpretation BOOLEAN DEFAULT FALSE,
   invoice_received BOOLEAN DEFAULT FALSE,
   invoice_submitted BOOLEAN DEFAULT FALSE,

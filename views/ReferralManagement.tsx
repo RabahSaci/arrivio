@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Client, ReferralStatus, Partner, UserRole, Session, SessionType } from '../types';
+import { Client, ReferralStatus, Partner, UserRole, Session, SessionType, SessionCategory } from '../types';
 import { STATUS_COLORS } from '../constants';
 import Pagination from '../components/Pagination';
+import * as XLSX from 'xlsx';
 import { apiService } from '../services/apiService';
 import { 
   Search, 
@@ -47,7 +48,134 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
+  const [profiles, setProfiles] = useState<any[]>([]);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
   const itemsPerPage = 15;
+
+  // Fetch profiles for advisor mapping
+  useEffect(() => {
+    if (activeRole === UserRole.ADMIN || activeRole === UserRole.MANAGER) {
+      apiService.fetchTable('profiles').then(setProfiles).catch(console.error);
+    }
+  }, [activeRole]);
+
+  const handleImportReferrals = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    
+    setIsLoading(true);
+    const file = e.target.files[0];
+    const reader = new FileReader();
+
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(ws) as any[];
+
+        const updatesMap = new Map<string, any>();
+        let skipped = 0;
+        let errors: string[] = [];
+
+        data.forEach((row, index) => {
+          try {
+            // 1. Identify Client by Email
+            const emailKey = Object.keys(row).find(k => k.toLowerCase().includes('email') || k.toLowerCase().includes('courriel'));
+            const email = row[emailKey || '']?.toString().trim().toLowerCase();
+            
+            if (!email) {
+              skipped++;
+              return;
+            }
+
+            const client = clients.find(c => c.email?.toLowerCase() === email);
+            if (!client) {
+              skipped++;
+              return;
+            }
+
+            // 2. Identify Partner by Name
+            const partnerKey = Object.keys(row).find(k => k.toLowerCase().includes('organisme') || k.toLowerCase().includes('partenaire'));
+            const partnerName = row[partnerKey || '']?.toString().trim().toLowerCase();
+            const partner = partners.find(p => p.name.toLowerCase() === partnerName);
+            
+            if (!partner) {
+              errors.push(`Ligne ${index + 2}: Organisme "${partnerName}" non trouvé.`);
+              return;
+            }
+
+            // 3. Identify Advisor (referred_by_id)
+            const advisorKey = Object.keys(row).find(k => k.toLowerCase().includes('conseiller') || k.toLowerCase().includes('référent') || k.toLowerCase().includes('referent'));
+            const advisorEmail = row[advisorKey || '']?.toString().trim().toLowerCase();
+            
+            let referredById = null;
+            if (advisorEmail) {
+              const profile = profiles.find(p => p.email?.toLowerCase() === advisorEmail);
+              referredById = profile?.id || null;
+            }
+            
+            // Default to current user if not found/provided
+            if (!referredById) {
+              referredById = currentUserId;
+            }
+
+            // 4. Status and Date
+            const statusKey = Object.keys(row).find(k => k.toLowerCase().includes('statut') || k.toLowerCase().includes('status'));
+            const excelStatus = row[statusKey || '']?.toString().trim().toUpperCase();
+            const finalStatus = excelStatus && Object.values(ReferralStatus).includes(excelStatus as any) 
+              ? excelStatus 
+              : ReferralStatus.REFERRED;
+
+            const dateKey = Object.keys(row).find(k => k.toLowerCase().includes('date') || k.toLowerCase().includes('transfert'));
+            let referralDate = new Date().toISOString();
+            
+            if (row[dateKey || '']) {
+              const parsedDate = new Date(row[dateKey || '']);
+              if (!isNaN(parsedDate.getTime())) {
+                referralDate = parsedDate.toISOString();
+              }
+            }
+
+            // DEDUPLICATION: Use Map to ensure one entry per client ID
+            updatesMap.set(client.id, {
+              id: client.id,
+              first_name: client.firstName,
+              last_name: client.lastName,
+              email: client.email,
+              assigned_partner_id: partner.id,
+              referred_by_id: referredById,
+              referral_date: referralDate,
+              status: finalStatus
+            });
+          } catch (rowErr) {
+            console.error(`Error at row ${index}:`, rowErr);
+            errors.push(`Ligne ${index + 2}: Erreur de données.`);
+          }
+        });
+
+        const updates = Array.from(updatesMap.values());
+
+        if (updates.length > 0) {
+          await apiService.bulkUpdateClients(updates);
+          let msg = `${updates.length} référencements mis à jour.`;
+          if (skipped > 0) msg += `\n${skipped} emails non trouvés (ignorés).`;
+          if (errors.length > 0) msg += `\n\nAlertes :\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...' : ''}`;
+          
+          alert(msg);
+          window.location.reload(); 
+        } else {
+          alert(`Aucune mise à jour effectuée.\n${skipped} emails ignorés.\n${errors.join('\n')}`);
+        }
+      } catch (err: any) {
+        console.error("Import Global Error:", err);
+        alert("Erreur lors de la lecture du fichier : " + (err.message || "Format invalide"));
+      } finally {
+        setIsLoading(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
 
   // Helper function for priority logic (shared for filtering and display)
   const getPriorityCategory = (arrivalDateStr: string) => {
@@ -98,6 +226,13 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
       
       // La règle originale: on affiche ceux qui ont arrivalDateApprox OU assignedPartnerId
       if (!client.arrivalDateApprox && !client.assignedPartnerId) return false;
+
+      // NOUVELLE CONDITION: Doit avoir eu une séance "Établissement"
+      const clientSessions = sessionsByClient.get(client.id) || [];
+      const hasEstablishmentSession = clientSessions.some(s => 
+        s.type === SessionType.ESTABLISHMENT && s.category === SessionCategory.INDIVIDUAL
+      );
+      if (!hasEstablishmentSession) return false;
 
       // 2. Filtrage partenaire (si compte partenaire, on ne voit que ses affiliés)
       if (activeRole === UserRole.PARTNER) {
@@ -247,6 +382,27 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
+          
+          {isAdvisor && (
+            <>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                className="hidden" 
+                accept=".xlsx, .xls, .csv"
+                onChange={handleImportReferrals} 
+              />
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading}
+                className="slds-button slds-button_neutral flex items-center gap-2"
+              >
+                <Share2 size={14} className="text-slds-brand" />
+                Télécharger en lots
+              </button>
+            </>
+          )}
+
           <div className="flex items-center gap-2">
             <Filter size={14} className="text-slds-text-secondary" />
             <span className="text-[10px] font-bold text-slds-text-secondary uppercase tracking-widest">Filtres :</span>

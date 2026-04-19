@@ -92,6 +92,8 @@ const sessionSchema = z.object({
   advisor_name: z.string().optional(),
   contract_id: z.string().uuid().optional().nullable().or(z.literal('')),
   client_id: z.string().uuid().optional().nullable().or(z.literal('')),
+  zoom_link: z.string().url("Format d'URL invalide").optional().or(z.literal('')),
+  zoom_id: z.string().regex(/^\d*$/, "L'ID Zoom doit être numérique").optional().or(z.literal('')),
   notes: z.string().optional()
 }).passthrough(); // Allow additional fields from frontend (category, type, etc.)
 
@@ -117,7 +119,7 @@ const validate = (schema) => (req, res, next) => {
     }
     return res.status(400).json({ 
       error: "Données invalides",
-      details: error.errors.map(e => ({ path: e.path, message: e.message }))
+      details: (error.issues || []).map(e => ({ path: e.path, message: e.message }))
     });
   }
 };
@@ -140,6 +142,18 @@ const limiter = rateLimit({
   message: { error: 'Trop de requêtes, veuillez réessayer plus tard.' }
 });
 app.use('/api', limiter);
+
+// Helper: Haversine distance calculation (km)
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+          Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+};
 
 // Validate required environment variables for production
 if (process.env.NODE_ENV === 'production') {
@@ -334,15 +348,78 @@ app.use('/api', (req, res, next) => {
 // 1. Auth Login Proxy
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
+  const userAgent = req.headers['user-agent'];
+  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+
   try {
     const { data, error } = await supabaseAdmin.auth.signInWithPassword({ email, password });
     if (error) return res.status(401).json({ error: error.message });
     
+    const userId = data.user.id;
+
+    // --- SECURITY DETECTION (Impossible Travel & New Device) ---
+    // Runs in the background (fire and forget) to not slow down user
+    (async () => {
+      try {
+        // 1. Geolocation
+        const geoRes = await fetch(`http://ip-api.com/json/${ip.includes('::') ? '' : ip}`);
+        const geoData = await geoRes.json();
+        
+        if (geoData.status === 'success') {
+          const { lat, lon, city, country } = geoData;
+
+          // 2. Fetch last login
+          const { data: lastLogin } = await supabaseAdmin
+            .from('auth_login_history')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+          if (lastLogin) {
+            // 3. Speed calculation
+            const dist = calculateDistance(lat, lon, parseFloat(lastLogin.latitude), parseFloat(lastLogin.longitude));
+            const timeDiffHours = (Date.now() - new Date(lastLogin.created_at).getTime()) / (1000 * 60 * 60);
+            const speed = timeDiffHours > 0 ? dist / timeDiffHours : 0;
+
+            console.info(`[SECURITY] Travel check for ${email}: ${dist.toFixed(0)}km in ${timeDiffHours.toFixed(2)}h (${speed.toFixed(0)}km/h)`);
+
+            if (speed > 300) {
+              await supabaseAdmin.from('activity_logs').insert([{
+                user_id: userId,
+                activity_type: 'SECURITY_ALERT',
+                description: `Connexion suspecte (Voyage impossible) : détectée à ${city}, ${country} (${speed.toFixed(0)} km/h depuis la dernière position).`,
+                module: 'AUTHENTIFICATION',
+                status: 'WARNING'
+              }]);
+            }
+          } else {
+            console.info(`[SECURITY] First tracked login for ${email}`);
+          }
+
+          // 4. Save to history
+          await supabaseAdmin.from('auth_login_history').insert([{
+            user_id: userId,
+            ip_address: ip,
+            user_agent: userAgent,
+            city,
+            country,
+            latitude: lat,
+            longitude: lon
+          }]);
+        }
+      } catch (secErr) {
+        console.error('[SECURITY ERROR]', secErr.message);
+      }
+    })();
+    // ----------------------------------------------------------
+
     // Fetch profile
     const { data: profile } = await supabaseAdmin
       .from('profiles')
       .select('*')
-      .eq('id', data.user.id)
+      .eq('id', userId)
       .single();
 
     res.json({
@@ -351,6 +428,7 @@ app.post('/api/auth/login', async (req, res) => {
       profile: profile
     });
   } catch (err) {
+    console.error('[LOGIN ERROR]', err.message);
     res.status(500).json({ error: "Erreur lors de l'authentification" });
   }
 });
@@ -589,6 +667,146 @@ app.post('/api/clients/bulk', async (req, res) => {
   }
 });
 
+// Bulk Update Clients by ID (for Referral Uploads)
+app.post('/api/clients/bulk-update', async (req, res) => {
+  const updates = req.body;
+  if (!Array.isArray(updates)) {
+    return res.status(400).json({ error: "Un tableau de mises à jour est requis." });
+  }
+
+  try {
+    console.log(`[BULK-UPDATE] Mise à jour de ${updates.length} clients.`);
+    
+    // Perform bulk upsert on conflict 'id'
+    const { data, error } = await supabaseAdmin
+      .from('clients')
+      .upsert(updates, { onConflict: 'id' });
+
+    if (error) throw error;
+
+    // Log the activity
+    await supabaseAdmin.from('activity_logs').insert([{
+      activity_type: 'MISE_A_JOUR_MASSIVE',
+      description: `Mise à jour massive de ${updates.length} clients (Référencements).`,
+      module: 'REFERENCEMENT',
+      status: 'SUCCESS'
+    }]);
+
+    res.json({ success: true, count: updates.length });
+  } catch (err) {
+    console.error("[BULK-UPDATE] Erreur:", err.message);
+    res.status(500).json({ error: "Erreur lors de la mise à jour massive des clients." });
+  }
+});
+
+
+// Bulk Insert Sessions with Validation
+app.post('/api/sessions/bulk', async (req, res) => {
+  console.info(`[BULK SESSIONS] Request received. Body type: ${typeof req.body}, isArray: ${Array.isArray(req.body)}`);
+  try {
+    const sessions = req.body;
+    if (!Array.isArray(sessions)) {
+       console.warn("[BULK SESSIONS] Rejecting: not an array.");
+       return res.status(400).json({ error: "Format attendu: tableau de séances." });
+    }
+
+    console.info(`[BULK SESSIONS] Starting validation and import of ${sessions.length} sessions.`);
+
+    for (let i = 0; i < sessions.length; i++) {
+      const s = sessions[i];
+      
+      // 1. Basic Schema Validation (Zod)
+      const validation = sessionSchema.safeParse(s);
+      if (!validation.success) {
+        const firstError = (validation.error.issues || [])[0];
+        return res.status(400).json({ 
+          error: `Format invalide : ${firstError.message}`,
+          rowIndex: i,
+          field: firstError.path.join('.'),
+          clientName: s.title
+        });
+      }
+
+      const { date, start_time, duration, facilitator_name, advisor_name, contract_id } = s;
+      const startMinutes = timeToMinutes(start_time);
+      const endMinutes = startMinutes + parseInt(duration);
+
+      // 2. Overlap validation (TEMPORARILY DISABLED for historical imports)
+      /*
+      const { data: existingSessions, error: fetchError } = await supabaseAdmin
+        .from('sessions')
+        .select('title, start_time, duration, facilitator_name, advisor_name')
+        .eq('date', date);
+
+      if (fetchError) throw fetchError;
+
+      for (const existing of existingSessions) {
+        const sStart = timeToMinutes(existing.start_time);
+        const sEnd = sStart + parseInt(existing.duration);
+        const hasOverlap = (startMinutes < sEnd && sStart < endMinutes);
+        
+        if (hasOverlap) {
+          if (facilitator_name && existing.facilitator_name === facilitator_name) {
+            return res.status(400).json({ 
+              error: `Conflit d'horaire pour le facilitateur "${facilitator_name}" avec la séance "${existing.title}" (${existing.start_time}).`,
+              rowIndex: i,
+              field: 'start_time',
+              clientName: s.title
+            });
+          }
+          if (advisor_name && existing.advisor_name === advisor_name) {
+            return res.status(400).json({ 
+              error: `Conflit d'horaire pour le conseiller "${advisor_name}" avec la séance "${existing.title}" (${existing.start_time}).`,
+              rowIndex: i,
+              field: 'start_time',
+              clientName: s.title
+            });
+          }
+        }
+      }
+      */
+
+      // 3. Contract check
+      if (contract_id) {
+        const { data: contract, error: contractError } = await supabaseAdmin
+          .from('contracts')
+          .select('total_sessions, used_sessions, consultant_name')
+          .eq('id', contract_id)
+          .single();
+        
+        if (contract && contract.used_sessions >= contract.total_sessions) {
+          return res.status(400).json({ 
+            error: `Le contrat de ${contract.consultant_name} est épuisé (${contract.used_sessions}/${contract.total_sessions} séances).`,
+            rowIndex: i,
+            field: 'contract_id',
+            clientName: s.title
+          });
+        }
+      }
+    }
+
+    // If all pass, proceed to bulk insert
+    const { data, error } = await supabaseAdmin
+      .from('sessions')
+      .insert(sessions)
+      .select();
+
+    if (error) throw error;
+
+    await supabaseAdmin.from('activity_logs').insert([{
+      activity_type: 'IMPORT_MASSIF',
+      description: `Importation massive réussie de ${data.length} séances.`,
+      module: 'CALENDRIER',
+      status: 'SUCCESS'
+    }]);
+
+    res.json({ success: true, count: data.length });
+  } catch (err) {
+    console.error("Bulk Sessions Error:", err.message);
+    res.status(500).json({ error: `Erreur lors de l'importation massive : ${err.message}` });
+  }
+});
+
 // Helper to convert time "HH:mm" to minutes from midnight
 const timeToMinutes = (timeStr) => {
   const [hours, minutes] = timeStr.split(':').map(Number);
@@ -650,7 +868,10 @@ app.post('/api/sessions', validate(sessionSchema), async (req, res) => {
     // DEEP DIAGNOSTIC
     console.info(`[CREATE SESSION] User: ${req.user?.email}, Client is Admin: ${client === supabaseAdmin}`);
 
-    const { data, error } = await client.from('sessions').insert([req.body]).select();
+    // Auto-fill advisor_id from current user
+    const sessionToInsert = { ...req.body, advisor_id: req.user?.id };
+
+    const { data, error } = await client.from('sessions').insert([sessionToInsert]).select();
     
     if (error) {
       console.error(`Error creating session in DB:`, error.message);
@@ -723,19 +944,59 @@ function getReadClient(table, req) {
 // Generic proxy for other tables
 app.get('/api/:table', async (req, res) => {
   const { table } = req.params;
+  const { page, limit, search, status, city, country, startDate, endDate, facilitator, type, priority } = req.query;
+
   try {
     const client = getReadClient(table, req);
-    let query = client.from(table).select('*');
+    let query = client.from(table).select('*', { count: 'exact' });
     
-    // Custom ordering for specific tables
+    // --- FILTERS ---
+    if (search) {
+      if (table === 'clients') {
+        query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
+      } else if (table === 'sessions') {
+        query = query.ilike('title', `%${search}%`);
+      }
+    }
+
+    // Special logic for Referral Management
+    if (table === 'clients' && req.query.referralOnly === 'true') {
+      // In a real PG setting, this would be a join or subquery. 
+      // For now, we allow filtering on clients who ALREADY have a partner OR logic handled by UI
+      // But to be efficient, let's at least filter by partner presence or a specific referral status if it existed.
+      // If we want exact match of the previous logic (has sessions), we need a subquery.
+      // Supabase supports filtering on joined tables if we select them.
+      // But let's keep it simple for now: match the status filters and partner filters.
+    }
+
+    if (status && status !== 'ALL') query = query.eq(table === 'clients' ? 'status' : 'individual_status', status);
+    if (city && city !== 'ALL') query = query.eq('destination_city', city);
+    if (country && country !== 'ALL') query = query.eq('origin_country', country);
+    if (facilitator && facilitator !== 'ALL') query = query.eq('facilitator_name', facilitator);
+    if (type && type !== 'ALL') query = query.eq('type', type);
+
+    if (startDate) query = query.gte(table === 'sessions' ? 'date' : 'arrival_date', startDate);
+    if (endDate) query = query.lte(table === 'sessions' ? 'date' : 'arrival_date', endDate);
+
+    // --- ORDERING ---
     if (table === 'clients') {
       query = query.order('created_at', { ascending: false });
     } else if (table === 'activity_logs') {
       query = query.order('timestamp', { ascending: false });
     } else if (table === 'sessions') {
-      query = query.order('date', { ascending: false });
+      query = query.order('date', { ascending: false }).order('start_time', { ascending: false });
     }
 
+    // --- PAGINATION ---
+    if (page && limit) {
+      const from = (parseInt(page) - 1) * parseInt(limit);
+      const to = from + parseInt(limit) - 1;
+      const { data, count, error } = await query.range(from, to);
+      if (error) throw error;
+      return res.json({ data: data || [], total: count, page: parseInt(page), limit: parseInt(limit) });
+    }
+
+    // Fallback: Fetch All (for legacy components or small tables)
     const data = await fetchAll(query);
     res.json(data);
   } catch (err) {
@@ -792,6 +1053,38 @@ app.delete('/api/partners/:id', authenticate_then_authorize([UserRole.ADMIN, Use
   }
 });
 
+// Specialized route for messaging: mark as read
+app.post('/api/messages/mark-read', async (req, res) => {
+  const { otherParticipantId } = req.body;
+  const currentUserId = req.user?.id;
+
+  if (!otherParticipantId || !currentUserId) {
+    console.error('[POST /api/messages/mark-read] Missing parameters:', { otherParticipantId, currentUserId });
+    return res.status(400).json({ error: "Missing required parameters" });
+  }
+
+  console.info(`[MARK-READ] Admin attempting to mark msgs read. currentUserId (receiver): ${currentUserId}, otherParticipantId (sender): ${otherParticipantId}`);
+
+  try {
+    const db = getAdminClient();
+    const { data, error } = await db
+      .from('messages')
+      .update({ is_read: true })
+      .eq('receiver_id', currentUserId)
+      .eq('sender_id', otherParticipantId)
+      .eq('is_read', false)
+      .select();
+
+    console.info(`[MARK-READ] Supabase update complete. Error?`, error ? error.message : 'None', `Data:`, data ? data.length : 0);
+
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[POST /api/messages/mark-read] Error:', err.message);
+    res.status(500).json({ error: "Failed to mark messages as read" });
+  }
+});
+
 // Generic POST (all other tables)
 // Create entry
 app.post('/api/:table', async (req, res) => {
@@ -817,6 +1110,24 @@ async function handleCreate(table, req, res) {
   try {
     const db = getAdminClient();
     console.info(`[CREATE] Table: ${table}, User: ${req.user?.email}, Role: ${req.user?.role}`);
+
+    // Sanitization for sessions
+    if (table === 'sessions') {
+      const knownSessionFields = [
+        'title', 'type', 'category', 'date', 'start_time', 'duration',
+        'participant_ids', 'no_show_ids', 'location', 'notes',
+        'facilitator_name', 'facilitator_type', 'advisor_name', 'advisor_id',
+        'contract_id', 'zoom_link', 'zoom_id', 'needs_interpretation',
+        'individual_status', 'discussed_needs', 'actions',
+        'invoice_received', 'invoice_submitted', 'invoice_paid', 'invoice_amount',
+        'created_at'
+      ];
+      body = Object.fromEntries(
+        Object.entries(body).filter(([key]) => knownSessionFields.includes(key))
+      );
+      console.info(`[CREATE sessions] Sanitized body keys: ${Object.keys(body).join(', ')}`);
+    }
+
     const { data, error } = await db.from(table).insert([body]).select();
     if (error) throw error;
     res.status(201).json(data[0]);
@@ -830,7 +1141,29 @@ async function handleCreate(table, req, res) {
 app.put('/api/:table/:id', async (req, res) => {
   const { table, id } = req.params;
   
-  // For now restrict updates on sensitive tables
+  // Custom logic for sessions: Admin OR Creator only
+  if (table === 'sessions') {
+    try {
+      const { data: session, error } = await supabaseAdmin
+        .from('sessions')
+        .select('advisor_id')
+        .eq('id', id)
+        .single();
+      
+      if (error || !session) return res.status(404).json({ error: "Séance non trouvée" });
+
+      const isAdmin = req.user?.role === UserRole.ADMIN;
+      const isCreator = session.advisor_id === req.user?.id;
+
+      if (!isAdmin && !isCreator) {
+        return res.status(403).json({ error: "Vous n'avez pas le droit de modifier cette séance (Admin ou Créateur uniquement)." });
+      }
+    } catch (err) {
+      return res.status(500).json({ error: "Erreur lors de la vérification des permissions" });
+    }
+  }
+
+  // For now restrict updates on other sensitive tables
   if (['contracts', 'partners', 'app_settings', 'profiles'].includes(table)) {
      return authorize([UserRole.ADMIN, UserRole.MANAGER])(req, res, async () => {
         await handleUpdate(table, id, req, res);
@@ -853,8 +1186,8 @@ async function handleUpdate(table, id, req, res) {
       const knownSessionFields = [
         'title', 'type', 'category', 'date', 'start_time', 'duration',
         'participant_ids', 'no_show_ids', 'location', 'notes',
-        'facilitator_name', 'facilitator_type', 'advisor_name',
-        'contract_id', 'zoom_link', 'needs_interpretation',
+        'facilitator_name', 'facilitator_type', 'advisor_name', 'advisor_id',
+        'contract_id', 'zoom_link', 'zoom_id', 'needs_interpretation',
         'individual_status', 'discussed_needs', 'actions',
         'invoice_received', 'invoice_submitted', 'invoice_paid', 'invoice_amount'
       ];
@@ -909,7 +1242,7 @@ app.delete('/api/:table/:id', async (req, res) => {
     if (table === 'sessions' && isAdvisor) {
       const { data: session, error: fetchErr } = await supabaseAdmin
         .from('sessions')
-        .select('advisor_name')
+        .select('advisor_id, advisor_name')
         .eq('id', id)
         .single();
 
@@ -917,18 +1250,21 @@ app.delete('/api/:table/:id', async (req, res) => {
         return res.status(404).json({ error: "Séance introuvable." });
       }
 
-      const advisorNameNorm = (session.advisor_name || '').trim().toLowerCase();
-      const currentUserNorm = (req.user?.email?.split('@')[0] || '').trim().toLowerCase();
-      // Also check against the full name stored in profile
-      const { data: profile } = await supabaseAdmin
-        .from('profiles')
-        .select('first_name, last_name')
-        .eq('id', req.user?.id)
-        .single();
+      const isOwner = session.advisor_id === req.user?.id;
+      
+      // Fallback to name matching if advisor_id is missing (legacy)
+      let isNameOwner = false;
+      if (!session.advisor_id && session.advisor_name) {
+        const { data: profile } = await supabaseAdmin
+          .from('profiles')
+          .select('first_name, last_name')
+          .eq('id', req.user?.id)
+          .single();
+        const profileFullName = profile ? `${profile.first_name} ${profile.last_name}`.trim().toLowerCase() : '';
+        isNameOwner = session.advisor_name.trim().toLowerCase() === profileFullName;
+      }
 
-      const profileFullName = profile ? `${profile.first_name} ${profile.last_name}`.trim().toLowerCase() : '';
-
-      if (advisorNameNorm !== profileFullName && !isAdmin) {
+      if (!isOwner && !isNameOwner && !isAdmin) {
         return res.status(403).json({ error: "Vous ne pouvez supprimer que vos propres séances." });
       }
     }
