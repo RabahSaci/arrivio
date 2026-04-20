@@ -30,6 +30,7 @@ interface ReferralManagementProps {
   clients: Client[];
   sessions: Session[];
   onSelectClient: (client: Client) => void;
+  allProfiles: any[];
 }
 
 const ReferralManagement: React.FC<ReferralManagementProps> = ({ 
@@ -39,7 +40,8 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
   currentUserId,
   clients,
   sessions,
-  onSelectClient
+  onSelectClient,
+  allProfiles
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterPartner, setFilterPartner] = useState('ALL');
@@ -48,16 +50,9 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
-  const [profiles, setProfiles] = useState<any[]>([]);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const itemsPerPage = 15;
 
-  // Fetch profiles for advisor mapping
-  useEffect(() => {
-    if (activeRole === UserRole.ADMIN || activeRole === UserRole.MANAGER) {
-      apiService.fetchTable('profiles').then(setProfiles).catch(console.error);
-    }
-  }, [activeRole]);
 
   const handleImportReferrals = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
@@ -110,7 +105,7 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
             
             let referredById = null;
             if (advisorEmail) {
-              const profile = profiles.find(p => p.email?.toLowerCase() === advisorEmail);
+              const profile = allProfiles.find(p => p.email?.toLowerCase() === advisorEmail);
               referredById = profile?.id || null;
             }
             
@@ -200,12 +195,17 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
     }
   };
 
-  // Extract unique advisors from sessions
-  const advisors = useMemo(() => {
-    const unique = new Set<string>();
-    sessions.forEach(s => { if (s.advisorName) unique.add(s.advisorName); });
-    return Array.from(unique).sort();
-  }, [sessions]);
+  // List of advisors from profiles for the filter
+  const advisorOptions = useMemo(() => {
+    if (!allProfiles) return [];
+    return allProfiles
+      .filter(p => [UserRole.ADVISOR, UserRole.MANAGER, UserRole.ADMIN, UserRole.PARTNER].includes(p.role))
+      .map(p => ({
+        id: p.id,
+        name: `${p.firstName} ${p.lastName}`.trim()
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [allProfiles]);
 
   // OPTIMIZATION: Index sessions by client ID once to avoid repeated full list scans
   const sessionsByClient = useMemo(() => {
@@ -286,9 +286,12 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
         .filter(s => s.type === SessionType.ESTABLISHMENT)
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-      const firstEstablishmentAdvisor = establishmentSessions.length > 0 
-        ? establishmentSessions[0].advisorName 
-        : "N/A";
+      const firstEstablishmentSession = establishmentSessions.length > 0 
+        ? establishmentSessions[0] 
+        : null;
+      
+      const advisorName = firstEstablishmentSession ? firstEstablishmentSession.advisorName : "N/A";
+      const advisorId = firstEstablishmentSession ? firstEstablishmentSession.advisorId : null;
       
       // Recalcule la priorité
       let priority = getPriorityCategory(client.arrivalDateApprox || '');
@@ -302,12 +305,22 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
         ...client,
         partnerName: partner?.name || (client.assignedPartnerId ? 'Organisme inconnu' : 'En attente de référencement'),
         partnerCity: partner?.city || '',
-        advisorName: firstEstablishmentAdvisor,
+        advisorName: advisorName,
+        advisorId: advisorId,
         priority: priority
       };
     }).filter(client => {
-      // 6. Filtrage par Intervenant
-      if (filterAdvisor !== 'ALL' && client.advisorName !== filterAdvisor) return false;
+      // 6. Filtrage par Intervenant (ID ou Nom)
+      if (filterAdvisor !== 'ALL') {
+        const selectedOption = advisorOptions.find(o => o.id === filterAdvisor);
+        if (selectedOption) {
+          const matchId = client.advisorId === selectedOption.id;
+          const matchName = client.advisorName?.trim().toLowerCase() === selectedOption.name.toLowerCase();
+          if (!matchId && !matchName) return false;
+        } else {
+          if (client.advisorName !== filterAdvisor) return false;
+        }
+      }
 
       // 7. Filtrage par Priorité
       if (filterPriority !== 'ALL' && client.priority !== filterPriority) return false;
@@ -446,12 +459,14 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
 
           {isAdvisor && (
             <select 
-              className="slds-input w-auto min-w-[150px]"
+              className="slds-input w-auto min-w-[200px]"
               value={filterAdvisor}
               onChange={(e) => setFilterAdvisor(e.target.value)}
             >
               <option value="ALL">Tous les conseillers</option>
-              {advisors.map(name => <option key={name} value={name}>{name}</option>)}
+              {advisorOptions.map(f => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
             </select>
           )}
 

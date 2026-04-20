@@ -179,6 +179,65 @@ const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, clients, activeRole, 
     }
   };
 
+  const renderLogDetails = (details: any) => {
+    if (!details) return <p className="text-slate-400 italic">Aucun détail disponible</p>;
+    
+    try {
+      const detailsObj = typeof details === 'string' && details.startsWith('{') 
+        ? JSON.parse(details) 
+        : (typeof details === 'object' ? details : null);
+
+      if (detailsObj) {
+        const { message, changes } = detailsObj;
+        
+        if (changes && typeof changes === 'object') {
+          return (
+            <div className="space-y-4">
+              <p className="text-sm font-semibold text-slds-text-primary leading-relaxed bg-white p-3 rounded border border-slds-border">
+                {message || "Modifications apportées :"}
+              </p>
+              
+              <div className="overflow-hidden rounded-lg border border-slds-border bg-white shadow-sm">
+                <table className="min-w-full divide-y divide-slds-border text-[11px]">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-black text-slate-400 uppercase tracking-widest">Propriété</th>
+                      <th className="px-4 py-2 text-left font-black text-slate-400 uppercase tracking-widest">Ancienne Valeur</th>
+                      <th className="px-4 py-2 text-left font-black text-slate-400 uppercase tracking-widest">Nouvelle Valeur</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slds-border">
+                    {Object.entries(changes).map(([key, value]: [string, any]) => {
+                      const from = value && typeof value === 'object' && 'from' in value ? value.from : null;
+                      const to = value && typeof value === 'object' && 'to' in value ? value.to : value;
+                      
+                      return (
+                        <tr key={key} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-4 py-2 font-bold text-slate-600 bg-slate-50/30">{key}</td>
+                          <td className="px-4 py-2 text-red-500 line-through opacity-70 break-all max-w-[200px]">
+                            {from === null || from === undefined ? '—' : String(from)}
+                          </td>
+                          <td className="px-4 py-2 text-emerald-600 font-bold break-all max-w-[200px]">
+                            {to === null || to === undefined ? '—' : String(to)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        }
+        return <p className="text-sm font-semibold text-slds-text-primary bg-white p-3 rounded border border-slds-border">{message || details}</p>;
+      }
+    } catch (e) {
+      // Fallback to simple string
+    }
+    
+    return <p className="text-sm font-semibold text-slds-text-primary leading-relaxed bg-white p-3 rounded border border-slds-border">{details}</p>;
+  };
+
   return (
     <div className="space-y-6">
       {/* Stats Cards */}
@@ -328,7 +387,11 @@ const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, clients, activeRole, 
                         )}
                       </td>
                       <td className="max-w-xs">
-                        <p className="text-xs text-slds-text-secondary truncate font-medium">{log.details}</p>
+                        <p className="text-xs text-slds-text-secondary truncate font-medium">
+                          {log.details?.startsWith('{') ? (() => {
+                            try { return JSON.parse(log.details).message; } catch(e) { return log.details; }
+                          })() : log.details}
+                        </p>
                       </td>
                       <td className="text-right">
                         <button className="p-1 text-slds-text-secondary hover:text-slds-brand transition-colors">
@@ -341,9 +404,9 @@ const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, clients, activeRole, 
                         <td colSpan={7} className="p-4 border-l-4 border-l-slds-brand">
                           <div className="space-y-4">
                             <div className="flex justify-between items-start">
-                              <div className="space-y-1">
+                              <div className="space-y-1 flex-1 mr-8">
                                 <p className="text-[10px] font-black text-slds-text-secondary uppercase tracking-widest">Description complète</p>
-                                <p className="text-sm font-semibold text-slds-text-primary leading-relaxed bg-white p-3 rounded border border-slds-border">{log.details}</p>
+                                {renderLogDetails(log.details)}
                               </div>
                               <div className="text-right">
                                 <p className="text-[10px] font-black text-slate-400 uppercase mb-1">ID Événement</p>

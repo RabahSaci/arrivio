@@ -55,9 +55,15 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
   const [filterStartDate, setFilterStartDate] = useState<string>('');
   const [filterEndDate, setFilterEndDate] = useState<string>('');
 
-  const isAdminOrManager = activeRole === UserRole.ADMIN || activeRole === UserRole.MANAGER;
-
-  const advisors = useMemo(() => Array.from(new Set(sessions.map(s => s.advisorName))), [sessions]);
+  const advisorOptions = useMemo(() => {
+    return allProfiles
+      .filter(p => [UserRole.ADVISOR, UserRole.MANAGER, UserRole.ADMIN, UserRole.PARTNER].includes(p.role))
+      .map(p => ({
+        id: p.id,
+        name: `${p.firstName} ${p.lastName}`.trim()
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [allProfiles]);
 
   
   const uniqueFacilitators = useMemo(() => {
@@ -89,7 +95,15 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
       if (!isGroup) return false;
       
       const matchService = filterService === 'ALL' || s.type === filterService;
-      const matchAdvisor = filterAdvisor === 'ALL' || s.advisorName === filterAdvisor;
+      
+      let matchAdvisor = true;
+      if (filterAdvisor !== 'ALL') {
+        const selectedAdvisor = advisorOptions.find(o => o.id === filterAdvisor);
+        if (selectedAdvisor) {
+          matchAdvisor = s.advisorId === selectedAdvisor.id || s.advisorName?.trim().toLowerCase() === selectedAdvisor.name.toLowerCase();
+        }
+      }
+
       const matchFacType = filterFacilitatorType === 'ALL' || s.facilitatorType === filterFacilitatorType;
       const matchFacName = filterFacilitatorName === 'ALL' || s.facilitatorName === filterFacilitatorName;
       
@@ -207,7 +221,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
             onChange={(e) => setFilterAdvisor(e.target.value)}
           >
             <option value="ALL">Tous les Conseillers</option>
-            {advisors.map(a => <option key={a} value={a}>{a}</option>)}
+            {advisorOptions.map(opt => <option key={opt.id} value={opt.id}>{opt.name}</option>)}
           </select>
 
           <div className="flex items-center gap-2 shrink-0 h-8 border-l border-slate-100 pl-4">

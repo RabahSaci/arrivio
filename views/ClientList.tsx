@@ -43,6 +43,7 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
   const [filterStatus, setFilterStatus] = useState<ReferralStatus | 'ALL'>('ALL');
   const [filterCity, setFilterCity] = useState('ALL');
   const [filterCountry, setFilterCountry] = useState('ALL');
+  const [filterSessionsRange, setFilterSessionsRange] = useState<'ALL' | '0' | '1-5' | '5+'>('ALL');
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
 
@@ -114,13 +115,21 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
       if (filterStartDate && (!client.registrationDate || client.registrationDate < filterStartDate)) return false;
       if (filterEndDate && (!client.registrationDate || client.registrationDate > filterEndDate)) return false;
       
+      // Filter by session count
+      if (filterSessionsRange !== 'ALL') {
+        const count = sessionsByClient.get(client.id)?.length || 0;
+        if (filterSessionsRange === '0' && count !== 0) return false;
+        if (filterSessionsRange === '1-5' && (count < 1 || count > 5)) return false;
+        if (filterSessionsRange === '5+' && count <= 5) return false;
+      }
+
       if (activeRole === UserRole.PARTNER && client.assignedPartnerId !== currentPartnerId) return false;
       
       return true;
     }).sort((a, b) => {
       return new Date(b.registrationDate || 0).getTime() - new Date(a.registrationDate || 0).getTime();
     });
-  }, [clients, searchTerm, filterStatus, filterCity, filterCountry, filterStartDate, filterEndDate, activeRole, currentPartnerId]);
+  }, [clients, searchTerm, filterStatus, filterCity, filterCountry, filterStartDate, filterEndDate, filterSessionsRange, activeRole, currentPartnerId, sessionsByClient]);
 
   const totalItems = filteredClients.length;
 
@@ -143,6 +152,7 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
     setFilterStatus('ALL');
     setFilterCity('ALL');
     setFilterCountry('ALL');
+    setFilterSessionsRange('ALL');
     setFilterStartDate('');
     setFilterEndDate('');
   };
@@ -484,7 +494,18 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
             {uniqueCountries.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
 
-          {(searchTerm || filterStatus !== 'ALL' || filterCity !== 'ALL' || filterCountry !== 'ALL' || filterStartDate || filterEndDate) && (
+          <select 
+            className="slds-input slds-input-compact w-auto text-[10px] h-7"
+            value={filterSessionsRange}
+            onChange={(e) => setFilterSessionsRange(e.target.value as any)}
+          >
+            <option value="ALL">Nb. Séances (Tous)</option>
+            <option value="0">Aucune séance</option>
+            <option value="1-5">1 à 5 séances</option>
+            <option value="5+">Plus de 5 séances</option>
+          </select>
+
+          {(searchTerm || filterStatus !== 'ALL' || filterCity !== 'ALL' || filterCountry !== 'ALL' || filterSessionsRange !== 'ALL' || filterStartDate || filterEndDate) && (
             <button 
               onClick={resetFilters}
               className="text-[9px] font-black text-slds-brand px-1 hover:underline uppercase"
@@ -553,10 +574,18 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
                             <span>{client.firstName} {client.lastName}</span>
                             {(() => {
                               const stats = getAttendanceStats(client.id);
-                              if (!stats) return null;
+                              if (!stats) return (
+                                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-slate-50 text-slate-400 border border-slate-100">
+                                  0 séance
+                                </span>
+                              );
                               return (
-                                <span className={`text-[10px] font-bold ${getReliabilityColor(100 - stats.rate)}`}>
-                                  {stats.rate}%
+                                <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${
+                                  stats.rate >= 80 ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                                  stats.rate >= 50 ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                                  'bg-red-50 text-red-600 border border-red-100'
+                                }`}>
+                                  {stats.rate}% • {stats.total} {stats.total > 1 ? 'séances' : 'séance'}
                                 </span>
                               );
                             })()}

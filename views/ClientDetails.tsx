@@ -4,51 +4,7 @@ import { Client, ReferralStatus, Mentor, Partner, Session, UserRole, Note, Profi
 import { STATUS_COLORS, MOCK_CLIENTS, MOCK_SESSIONS, SESSION_TYPE_LABELS } from '../constants';
 import { getPeerMatches, generateClientSynthesis } from '../services/geminiService';
 import ConfirmModal from '../components/ConfirmModal';
-import { 
-  ArrowLeft, 
-  Send, 
-  FileText, 
-  Info, 
-  Zap, 
-  CheckCircle2,
-  RefreshCw,
-  Share2,
-  Calendar,
-  History,
-  Clock,
-  Globe,
-  Archive,
-  MessageSquare,
-  HeartHandshake,
-  MapPin,
-  Briefcase,
-  ChevronRight,
-  Sparkles,
-  Loader2,
-  Phone,
-  Mail,
-  Tag,
-  X,
-  UserX,
-  AlertCircle,
-  Building2,
-  User,
-  Fingerprint,
-  FileCheck,
-  ShieldCheck,
-  Database,
-  Cpu,
-  Star,
-  Activity,
-  UserCheck,
-  ChevronDown,
-  ArrowRight,
-  Check,
-  Filter,
-  Target,
-  Users,
-  Trash2
-} from 'lucide-react';
+import { Plane, ArrowLeft, Send, FileText, Info, Zap, CheckCircle2, RefreshCw, Share2, Calendar, History, Clock, Globe, Archive, MessageSquare, HeartHandshake, MapPin, Briefcase, ChevronRight, Sparkles, Loader2, Phone, Mail, Tag, X, UserX, AlertCircle, Building2, User, Fingerprint, FileCheck, ShieldCheck, Database, Cpu, Star, Activity, UserCheck, ChevronDown, ArrowRight, Check, Filter, Target, Users, Trash2 } from 'lucide-react';
 
 interface ClientDetailsProps {
   client: Client;
@@ -119,9 +75,42 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
 
     // Logs système (Modifications profil)
     (allLogs || []).forEach(log => {
-      // On vérifie si le log concerne ce client (via nom ou ID dans les détails)
-      if (log.entityType === 'CLIENT' && log.details && (log.details.includes(client.firstName || '') || log.details.includes(client.id || '') || log.details.includes(client.lastName || ''))) {
-        items.push({ id: log.id, type: 'SYSTEM', title: log.actionType, content: log.details, author: log.userName || 'Système', timestamp: log.timestamp });
+      // Robust check: matches by ID in metadata OR matches by name in generic message
+      const isClientLog = log.entityType === 'CLIENT';
+      if (!isClientLog) return;
+
+      let matches = false;
+      try {
+        // Handle both string and object formats for details
+        const detailsObj = typeof log.details === 'string' && log.details.startsWith('{') 
+          ? JSON.parse(log.details) 
+          : (typeof log.details === 'object' ? log.details : null);
+
+        if (detailsObj) {
+          // Check entity_id (snake) or entityId (camel) or inside changes
+          matches = (detailsObj.entity_id === client.id) || 
+                    (detailsObj.entityId === client.id) || 
+                    (detailsObj.changes?.id?.to === client.id) ||
+                    (detailsObj.message?.includes(`${client.firstName} ${client.lastName}`));
+        } else {
+          // Legacy string match
+          const detailStr = String(log.details || '');
+          matches = detailStr.includes(client.id) || 
+                    detailStr.includes(`${client.firstName} ${client.lastName}`);
+        }
+      } catch (e) {
+        matches = String(log.details || '').includes(client.id);
+      }
+
+      if (matches) {
+        items.push({ 
+          id: log.id, 
+          type: 'SYSTEM', 
+          title: log.actionType, 
+          content: log.details, 
+          author: log.userName || 'Système', 
+          timestamp: log.timestamp 
+        });
       }
     });
 
@@ -198,6 +187,66 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
     } finally {
       setSynthesisLoading(false);
     }
+  };
+
+  const renderLogDetails = (details: string) => {
+    if (!details) return <p className="text-slate-400 italic">Aucun détail disponible</p>;
+    
+    try {
+      if (details.startsWith('{')) {
+        const parsed = JSON.parse(details);
+        const { message, changes } = parsed;
+        
+        if (changes && typeof changes === 'object') {
+          const entries = Object.entries(changes).filter(([k]) => k !== 'id');
+          
+          if (entries.length > 0) {
+            return (
+              <div className="space-y-4">
+                <p className="text-[11px] font-semibold text-slate-600 leading-relaxed">
+                  {message || "Modifications apportées :"}
+                </p>
+                
+                <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
+                  <table className="min-w-full divide-y divide-slate-100 text-[10px]">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="px-3 py-1.5 text-left font-black text-slate-400 uppercase tracking-widest">Champ</th>
+                        <th className="px-3 py-1.5 text-left font-black text-slate-400 uppercase tracking-widest">Avant</th>
+                        <th className="px-3 py-1.5 text-left font-black text-slate-400 uppercase tracking-widest">Après</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {entries.map(([key, value]: [string, any]) => {
+                        const from = value && typeof value === 'object' && 'from' in value ? value.from : null;
+                        const to = value && typeof value === 'object' && 'to' in value ? value.to : value;
+                        
+                        return (
+                          <tr key={key} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-3 py-1.5 font-bold text-slate-500 bg-slate-50/30">{key}</td>
+                            <td className="px-3 py-1.5 text-red-400 line-through opacity-70 truncate max-w-[120px]">
+                              {from === null || from === undefined ? '—' : String(from)}
+                            </td>
+                            <td className="px-3 py-1.5 text-emerald-600 font-bold truncate max-w-[120px]">
+                              {to === null || to === undefined ? '—' : String(to)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          }
+        }
+        return <p className="text-[11px] font-semibold text-slate-700">{message || details}</p>;
+      }
+    } catch (e) {
+      // Fallback
+    }
+    
+    return <p className="text-[11px] text-slate-700 font-medium leading-relaxed">{details}</p>;
   };
 
   const handleRunPeerMatching = async () => {
@@ -430,21 +479,70 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
               </div>
             </div>
 
-            <div className={`p-4 rounded-2xl border ${rel.bg} border-current/10 flex items-center justify-between shadow-sm`}>
+            {/* Date d'arrivée & Compte à rebours */}
+            <div className="mb-6 flex items-center gap-3 p-3 bg-slate-50/80 rounded-2xl border border-slate-100/50">
+              <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center text-blue-600 shadow-sm border border-slate-100">
+                <Plane size={14} />
+              </div>
+              <div className="flex-1">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Date d'arrivée prévue</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-black text-slate-700">
+                    {client.arrivalDateConfirmed || client.arrivalDate || client.arrivalDateApprox || 'Non renseignée'}
+                  </p>
+                  {(() => {
+                    const dateStr = client.arrivalDateConfirmed || client.arrivalDate;
+                    if (!dateStr) return null;
+                    const arrival = new Date(dateStr);
+                    if (isNaN(arrival.getTime())) return null;
+                    
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const diffTime = arrival.getTime() - today.getTime();
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    
+                    if (diffDays <= 0) return (
+                      <span className="px-1.5 py-0.5 rounded-lg bg-emerald-100 text-emerald-700 text-[9px] font-black uppercase tracking-tighter border border-emerald-200 shadow-sm">
+                        Déjà arrivé
+                      </span>
+                    );
+                    
+                    const label = diffDays < 30 ? `Dans ${diffDays} j.` : `Dans ${Math.floor(diffDays/30)} mois`;
+                    return (
+                      <span className="px-1.5 py-0.5 rounded-lg bg-blue-100 text-blue-700 text-[9px] font-black uppercase tracking-tighter border border-blue-200 shadow-sm">
+                        {label}
+                      </span>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            <div className={`p-4 rounded-2xl border ${stats.total > 0 ? rel.bg : 'bg-slate-50'} ${stats.total > 0 ? 'border-current/10' : 'border-slate-200'} flex items-center justify-between shadow-sm`}>
               <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-xl ${rel.bg} flex items-center justify-center shadow-inner`}>
-                  <Activity size={20} className={rel.color} />
+                <div className={`w-10 h-10 rounded-xl ${stats.total > 0 ? rel.bg : 'bg-white'} flex items-center justify-center shadow-inner ${stats.total === 0 ? 'border border-slate-100' : ''}`}>
+                  <Activity size={20} className={stats.total > 0 ? rel.color : 'text-slate-300'} />
                 </div>
                 <div>
                   <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Assiduité</p>
-                  <p className={`text-[9px] font-bold uppercase ${rel.color} opacity-80`}>{rel.label}</p>
+                  <p className={`text-[9px] font-bold uppercase ${stats.total > 0 ? rel.color : 'text-slate-400'} opacity-80`}>
+                    {stats.total > 0 ? rel.label : 'En attente de service'}
+                  </p>
                 </div>
               </div>
-              <div className={`px-4 py-2 rounded-xl border-2 font-black text-lg ${rel.color} ${rel.bg} border-current/20`}>
-                {stats.rate}%
-              </div>
+              {stats.total > 0 ? (
+                <div className={`px-4 py-2 rounded-xl border-2 font-black text-lg ${rel.color} ${rel.bg} border-current/20`}>
+                  {stats.rate}%
+                </div>
+              ) : (
+                <div className="text-[9px] font-black text-slate-400 uppercase bg-white px-3 py-2 rounded-xl border border-slate-100 italic">
+                  Aucune séance effectuée
+                </div>
+              )}
             </div>
-            <p className="text-[8px] text-slate-400 font-bold mt-4 uppercase tracking-tighter italic text-center">Calculé sur {stats.total} séance(s)</p>
+            <p className="text-[8px] text-slate-400 font-bold mt-4 uppercase tracking-tighter italic text-center">
+              {stats.total > 0 ? `Calculé sur ${stats.total} séance(s)` : 'Historique vierge'}
+            </p>
           </div>
 
           {/* Colonne 2 : Données Administratives */}
@@ -552,7 +650,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                       <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Données complètes importées du fichier de gestion</p>
                     </div>
                     <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-xl border border-slate-200 text-[10px] font-black uppercase text-slate-500">
-                       CODE : {client.clientCode || 'N/A'}
+                       #IUC ou #CRP : {client.iucCrpNumber || 'Non renseigné'}
                     </div>
                   </div>
 
@@ -1031,7 +1129,9 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                                <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded border mb-1.5 inline-block ${item.type === 'NOTE' ? 'bg-blue-50 text-blue-600' : item.type === 'SYSTEM' ? 'bg-red-50 text-red-600' : item.type === 'SESSION' ? 'bg-emerald-50 text-emerald-600' : 'bg-purple-50 text-purple-600'}`}>
                                  {item.title || item.type}
                                </span>
-                               <p className="text-[11px] text-slate-700 font-medium leading-relaxed">{item.content}</p>
+                               {item.type === 'SYSTEM' ? renderLogDetails(item.content) : (
+                                 <p className="text-[11px] text-slate-700 font-medium leading-relaxed">{item.content}</p>
+                               )}
                             </div>
                             <div className="text-right shrink-0">
                                <p className="text-[10px] font-bold text-slate-900">{new Date(item.timestamp).toLocaleDateString('fr-FR')}</p>

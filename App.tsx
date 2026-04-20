@@ -221,14 +221,60 @@ const App: React.FC = () => {
     setNotifications(prev => [newNotif, ...prev].slice(0, 50));
   }, []);
 
-  const logActivity = async (action: 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN', entity: 'SESSION' | 'CLIENT' | 'MENTOR' | 'CONTRACT' | 'PROFILE' | 'PARTNER', details: string) => {
+  // UTILITY: Calculate changes between two objects for audit logs
+  const getDelta = (oldObj: any, newObj: any) => {
+    if (!oldObj || !newObj) return null;
+    const delta: Record<string, { from: any; to: any }> = {};
+    const keys = new Set([...Object.keys(oldObj), ...Object.keys(newObj)]);
+    
+    // Technical fields common in our schema to ignore
+    const ignoredKeys = ['id', 'created_at', 'updated_at', 'last_modified', 'is_approved', 'is_profile_completed', 'needs'];
+    
+    keys.forEach(key => {
+      if (ignoredKeys.includes(key)) return;
+      
+      const oldVal = oldObj[key];
+      const newVal = newObj[key];
+      
+      // Compare values, strings, numbers or arrays (via stringification)
+      if (typeof oldVal === 'object' || typeof newVal === 'object') {
+        if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+          delta[key] = { from: oldVal, to: newVal };
+        }
+      } else if (oldVal !== newVal) {
+        delta[key] = { from: oldVal, to: newVal };
+      }
+    });
+
+    // MASK SENSITIVE FIELDS: Password or Roles logic
+    const sensitiveKeys = ['password', 'role'];
+    sensitiveKeys.forEach(key => {
+      if (delta[key]) {
+        delta[key] = { from: '[MASQUÉ]', to: '[MODIFIÉ]' };
+      }
+    });
+    
+    return Object.keys(delta).length > 0 ? delta : null;
+  };
+
+  const logActivity = async (
+    action: 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'SECURITY_ALERT', 
+    entity: 'SESSION' | 'CLIENT' | 'MENTOR' | 'CONTRACT' | 'PROFILE' | 'PARTNER' | 'AUTHENTIFICATION', 
+    details: string,
+    metadata?: any,
+    entityId?: string
+  ) => {
     try {
       await apiService.create('activity_logs', {
         user_id: currentUserId,
         user_name: currentUserName,
         action_type: action,
         entity_type: entity,
-        details: details,
+        details: (metadata || entityId) ? JSON.stringify({ 
+          message: details, 
+          changes: metadata,
+          entity_id: entityId // Use snake_case internally to avoid toCamel issues later
+        }) : details,
         timestamp: new Date().toISOString()
       });
       fetchLogs();
@@ -243,10 +289,10 @@ const App: React.FC = () => {
       if (Array.isArray(data)) {
         setActivityLogs(data.map((l: any) => ({
           id: l.id,
-          userId: l.user_id,
-          userName: l.user_name,
-          actionType: l.action_type,
-          entityType: l.entity_type,
+          userId: l.userId,
+          userName: l.userName,
+          actionType: l.actionType,
+          entityType: l.entityType,
           details: l.details,
           timestamp: l.timestamp
         })));
@@ -474,6 +520,9 @@ const App: React.FC = () => {
 
   const handleUpdateSession = async (session: Session) => {
     try {
+      const oldSession = sessions.find(s => s.id === session.id);
+      const delta = getDelta(oldSession, session);
+      
       await apiService.update('sessions', session.id, {
         title: session.title,
         type: session.type,
@@ -495,8 +544,8 @@ const App: React.FC = () => {
         individual_status: session.individualStatus,
         advisor_id: session.advisorId
       });
-      if (error) throw error;
-      await logActivity('UPDATE', 'SESSION', `Modification de la séance : ${session.title}`);
+      
+      await logActivity('UPDATE', 'SESSION', `Modification de la séance : ${session.title}`, delta, session.id);
       addNotification(NotificationType.SUCCESS, "Mise à jour réussie", "Les informations de la séance ont été modifiées.");
       fetchData();
     } catch (err: any) {
@@ -508,7 +557,7 @@ const App: React.FC = () => {
     try {
       const sessionToDelete = sessions.find(s => s.id === sessionId);
       await apiService.delete('sessions', sessionId);
-      await logActivity('DELETE', 'SESSION', `Suppression de la séance : ${sessionToDelete?.title || sessionId}`);
+      await logActivity('DELETE', 'SESSION', `Suppression de la séance : ${sessionToDelete?.title || sessionId}`, sessionToDelete, sessionId);
       addNotification(NotificationType.SUCCESS, "Suppression effectuée", "La séance a été retirée du système.");
       fetchData();
     } catch (err: any) {
@@ -520,7 +569,7 @@ const App: React.FC = () => {
     try {
       const clientToDelete = clients.find(c => c.id === clientId);
       await apiService.delete('clients', clientId);
-      await logActivity('DELETE', 'CLIENT', `Suppression du dossier client : ${clientToDelete?.firstName || ''} ${clientToDelete?.lastName || ''}`);
+      await logActivity('DELETE', 'CLIENT', `Suppression du dossier client : ${clientToDelete?.firstName || ''} ${clientToDelete?.lastName || ''}`, clientToDelete, clientId);
       addNotification(NotificationType.SUCCESS, "Client supprimé", "Le dossier a été définitivement supprimé.");
       setSelectedClientId(null);
       fetchData();
@@ -594,6 +643,9 @@ const App: React.FC = () => {
           onBack={() => setSelectedClient(null)} 
           onUpdate={async (u) => { 
             try {
+              const oldClient = clients.find(c => c.id === u.id);
+              const delta = getDelta(oldClient, u);
+              
               await apiService.update('clients', u.id, { 
                 status: u.status, 
                 assigned_partner_id: u.assignedPartnerId,
@@ -612,10 +664,8 @@ const App: React.FC = () => {
               setSelectedClient(u);
               setClients(prev => prev.map(c => c.id === u.id ? u : c));
               
-              await logActivity('UPDATE', 'CLIENT', `Mise à jour du dossier ${u.firstName} ${u.lastName}.`);
+              await logActivity('UPDATE', 'CLIENT', `Mise à jour du dossier client ${u.firstName} ${u.lastName}`, delta, u.id);
               addNotification(NotificationType.SUCCESS, "Mise à jour réussie", `Le dossier de ${u.firstName} ${u.lastName} a été mis à jour.`);
-              
-              // Synchronisation arrière-plan pour les effets de bord (tâches, etc.)
               fetchData();
             } catch (err: any) {
               console.error("Erreur mise à jour client:", err);
@@ -694,17 +744,26 @@ const App: React.FC = () => {
           onUpdateSession={handleUpdateSession} 
           onAddContract={handleAddContract} 
           onUpdateContract={async (c) => { 
-            await apiService.update('contracts', c.id, {
-              consultant_name: c.consultantName,
-              total_sessions: c.totalSessions,
-              start_date: c.startDate,
-              end_date: c.endDate,
-              status: c.status,
-              amount: c.amount,
-              service_type: c.serviceType
-            }); 
-            await logActivity('UPDATE', 'CONTRACT', `Modification du contrat de ${c.consultantName}`);
-            fetchData(); 
+            try {
+              const oldContract = contracts.find(con => con.id === c.id);
+              const delta = getDelta(oldContract, c);
+              
+              await apiService.update('contracts', c.id, {
+                consultant_name: c.consultantName,
+                total_sessions: c.totalSessions,
+                start_date: c.startDate,
+                end_date: c.endDate,
+                status: c.status,
+                amount: c.amount,
+                service_type: c.serviceType
+              }); 
+              
+              await logActivity('UPDATE', 'CONTRACT', `Modification du contrat de ${c.consultantName}`, delta);
+              fetchData(); 
+            } catch (err: any) {
+              console.error("Contract update log error", err);
+              fetchData();
+            }
           }} 
           onDeleteContract={async (id) => { 
             await apiService.delete('contracts', id); 
@@ -724,6 +783,7 @@ const App: React.FC = () => {
           currentPartnerId={currentPartnerId} 
           currentUserId={currentUserId}
           onSelectClient={setSelectedClient}
+          allProfiles={profiles}
         />
       );
       case 'reports': return <Reports clients={clients} sessions={sessions} partners={partners} activeRole={activeRole} currentPartnerId={currentPartnerId} />;
@@ -746,8 +806,11 @@ const App: React.FC = () => {
             fetchData(); 
           }} 
           onUpdatePartner={async (p) => { 
+            const oldPartner = partners.find(part => part.id === p.id);
+            const delta = getDelta(oldPartner, p);
+            
             await apiService.update('partners', p.id, { name: p.name, city: p.city, specialties: p.specialties }); 
-            await logActivity('UPDATE', 'PARTNER', `Mise à jour du partenaire : ${p.name}`);
+            await logActivity('UPDATE', 'PARTNER', `Mise à jour du partenaire : ${p.name}`, delta);
             fetchData(); 
           }} 
           onDeletePartner={async (id) => {
@@ -762,6 +825,9 @@ const App: React.FC = () => {
           profiles={profiles} 
           partners={partners} 
           onUpdateProfile={async (p) => { 
+            const oldProfile = profiles.find(prof => prof.id === p.id);
+            const delta = getDelta(oldProfile, p);
+            
             await apiService.update('profiles', p.id, { 
               first_name: p.firstName, 
               last_name: p.lastName, 
@@ -769,7 +835,7 @@ const App: React.FC = () => {
               partner_id: p.partnerId || null,
               position: p.position || null
             }); 
-            await logActivity('UPDATE', 'PROFILE', `Modification du compte de ${p.firstName} ${p.lastName}`);
+            await logActivity('UPDATE', 'PROFILE', `Modification du compte de ${p.firstName} ${p.lastName}`, delta);
             fetchData(); 
           }} 
           onAddProfile={async (p) => { 

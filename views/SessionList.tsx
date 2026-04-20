@@ -104,7 +104,17 @@ const SessionList: React.FC<SessionListProps> = ({
 
 
   const [isLoading, setIsLoading] = useState(false);
-  const [uniqueFacilitators, setUniqueFacilitators] = useState<string[]>([]);
+  
+  // List of unique facilitators from profiles for the filter
+  const facilitatorOptions = useMemo(() => {
+    return allProfiles
+      .filter(p => [UserRole.ADVISOR, UserRole.MANAGER, UserRole.ADMIN, UserRole.PARTNER].includes(p.role))
+      .map(p => ({
+        id: p.id,
+        name: `${p.firstName} ${p.lastName}`.trim()
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [allProfiles]);
 
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -160,8 +170,18 @@ const SessionList: React.FC<SessionListProps> = ({
       // Filtrage par type
       if (filterType !== 'ALL' && session.type !== filterType) return false;
       
-      // Filtrage par facilitateur
-      if (filterFacilitator !== 'ALL' && session.facilitatorName !== filterFacilitator) return false;
+      // Filtrage par facilitateur (ID ou Nom)
+      if (filterFacilitator !== 'ALL') {
+        const selectedOption = facilitatorOptions.find(o => o.id === filterFacilitator);
+        if (selectedOption) {
+          const matchId = session.advisorId === selectedOption.id;
+          const matchName = session.facilitatorName?.trim().toLowerCase() === selectedOption.name.toLowerCase();
+          if (!matchId && !matchName) return false;
+        } else {
+          // Fallback just in case "ALL" logic is different or manually set
+          if (session.facilitatorName !== filterFacilitator) return false;
+        }
+      }
       
       // Filtrage par statut de présence (uniquement pour les individuelles)
       if (activeCategory === SessionCategory.INDIVIDUAL && filterAttendance !== 'ALL') {
@@ -189,10 +209,6 @@ const SessionList: React.FC<SessionListProps> = ({
     return filteredSessions.slice(startIndex, startIndex + itemsPerPage);
   }, [filteredSessions, currentPage]);
 
-  useEffect(() => {
-    const names = new Set(sessions.map(s => s.facilitatorName).filter(Boolean));
-    setUniqueFacilitators(Array.from(names).sort() as string[]);
-  }, [sessions]);
 
   const resetFilters = () => {
     setSearchTerm('');
@@ -569,7 +585,9 @@ const SessionList: React.FC<SessionListProps> = ({
             onChange={(e) => setFilterFacilitator(e.target.value)}
           >
             <option value="ALL">Intervenants</option>
-            {uniqueFacilitators.map(f => <option key={f} value={f}>{f}</option>)}
+            {facilitatorOptions.map(f => (
+              <option key={f.id} value={f.id}>{f.name}</option>
+            ))}
           </select>
 
           {activeCategory === SessionCategory.INDIVIDUAL && (
