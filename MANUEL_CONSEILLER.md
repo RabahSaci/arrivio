@@ -44,9 +44,14 @@ Arrivio utilise l'IA pour favoriser l'entraide entre nouveaux arrivants :
 ## 4. Gestion des Séances & Assiduité
 
 Pour enregistrer vos interventions :
-*   **Planification** : Créez des séances individuelles ou de groupe depuis l'onglet "Séances" ou le "Calendrier".
-*   **Contrôle de l'Assiduité** : Dans la fiche client, onglet "Activités CFGT", cochez la présence ou signalez un "No-Show".
-*   **Historique des Sessions** : Chaque client possède son propre calendrier consolidé montrant chaque heure de service reçue.
+- **Planification** : Créez des séances individuelles ou de groupe depuis l'onglet "Séances" ou le "Calendrier".
+- **Téléversement Webinaire (Zoom)** : [NOUVEAU] 
+    1. Rendez-vous dans **Séances > Collectives**.
+    2. Téléchargez le **"Modèle Webinaire"** (Excel).
+    3. Remplissez le fichier avec le **Zoom ID** de la réunion et le **Courriel** des participants.
+    4. Le système regroupera automatiquement toutes les lignes ayant le même Zoom ID pour créer une seule séance collective avec tous ses participants.
+- **Contrôle de l'Assiduité** : Dans la fiche client, onglet "Activités CFGT", cochez la présence ou signalez un "No-Show".
+- **Historique des Sessions** : Chaque client possède son propre calendrier consolidé montrant chaque heure de service reçue.
 
 ---
 

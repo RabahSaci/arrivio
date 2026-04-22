@@ -10,10 +10,10 @@ export enum UserRole {
 export enum ReferralStatus {
   PENDING = 'EN_ATTENTE',
   REFERRED = 'REFERE',
-  ACKNOWLEDGED = 'RECU_PAR_PARTENAIRE',
+  ACKNOWLEDGED = 'PRIS_EN_CHARGE',
   CONTACTED = 'CONTACTE',
-  IN_PROGRESS = 'EN_ACCOMPAGNEMENT',
-  CLOSED = 'FERME'
+  IN_PROGRESS = 'EN_COURS',
+  CLOSED = 'TERMINE'
 }
 
 export interface Referral {
@@ -32,7 +32,7 @@ export enum SessionType {
   EMPLOYMENT = 'EMPLOI',
   RTCE = 'RTCE',
   MATCHING = 'JUMELAGE',
-  COMMUNITY_CONNECTION = 'CONNEXIONS_COMMUNAUTAIRES'
+  COMMUNITY_CONNECTION = 'CONNEXIONS'
 }
 
 export enum SessionCategory {
@@ -43,8 +43,8 @@ export enum SessionCategory {
 export enum AttendanceStatus {
   PRESENT = 'PRESENT',
   ABSENT = 'ABSENT',
-  CANCELLED = 'ANNULE_PAR_CLIENT',
-  TECH_ISSUE = 'PROBLEME_TECHNIQUE',
+  CANCELLED = 'ANNULE',
+  TECH_ISSUE = 'TECH_ISSUE',
   NON_ELIGIBLE = 'NON_ELIGIBLE',
   DECALEE = 'DECALEE'
 }
@@ -56,7 +56,7 @@ export enum FacilitatorType {
 
 export enum PartnerType {
   INTERNAL = 'INTERNE',
-  EXTERNAL = 'COLLABORATION_EXTERNE',
+  EXTERNAL = 'EXTERNE',
   CONSULTANT = 'CONSULTANT'
 }
 
@@ -117,6 +117,15 @@ export interface Session {
   invoiceSubmitted: boolean;
   invoicePaid: boolean;
   invoiceAmount?: number;
+  subjectsCovered?: string[];
+  targetClientTypes?: string[];
+  activityFormat?: string;
+  languageUsed?: string;
+  serviceSetting?: string;
+  providerLocation?: string;
+  supportServices?: string;
+  programmingType?: string;
+  clientLocationCountry?: string;
 }
 
 export interface UserActivityLog {
@@ -204,7 +213,6 @@ export interface Client {
   secondaryPartnerIds?: string[];
   referredById?: string;
   assignedMentorId?: string;
-  referralDate?: string;
   acknowledgedAt?: string;
   contactedAt?: string;
   closedAt?: string;

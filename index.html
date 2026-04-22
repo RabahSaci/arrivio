@@ -11,47 +11,7 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; }
         
-        @keyframes logoPulse {
-          0% { transform: scale(0.92); opacity: 0.6; filter: drop-shadow(0 0 0px rgba(0,112,210,0)); }
-          50% { transform: scale(1); opacity: 1; filter: drop-shadow(0 0 15px rgba(0,112,210,0.3)); }
-          100% { transform: scale(0.92); opacity: 0.6; filter: drop-shadow(0 0 0px rgba(0,112,210,0)); }
-        }
-
-        .loading-screen {
-          position: fixed;
-          inset: 0;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          background-color: #f8fafc;
-          z-index: 9999;
-        }
-
-        .loading-logo {
-          width: 80px;
-          height: 80px;
-          animation: logoPulse 2s ease-in-out infinite;
-          user-select: none;
-        }
-
-        .loading-text {
-          margin-top: 24px;
-          font-size: 10px;
-          font-weight: 800;
-          color: #0070d2;
-          text-transform: uppercase;
-          letter-spacing: 0.3em;
-          animation: fade 2s infinite;
-          animation-delay: 0.8s;
-          opacity: 0;
-        }
-
-        @keyframes fade {
-          0% { opacity: 0; }
-          50% { opacity: 1; }
-          100% { opacity: 0; }
-        }
+        body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; }
     </style>
 <script type="importmap">
 {

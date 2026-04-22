@@ -473,9 +473,19 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
               </div>
               <div className="min-w-0">
                 <h2 className="text-xl font-bold text-slate-900 tracking-tight truncate">{client.firstName} {client.lastName}</h2>
-                <div className={`mt-1 inline-block px-3 py-1 rounded-full text-[9px] font-black tracking-widest uppercase border ${STATUS_COLORS[client.status]}`}>
-                  {client.status.replace(/_/g, ' ')}
-                </div>
+                {client.status === ReferralStatus.PENDING ? (
+                  <div
+                    className="mt-1 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-bold tracking-tight uppercase border whitespace-nowrap"
+                    style={{ backgroundColor: '#f1f5f9', color: '#475569', borderColor: '#cbd5e1' }}
+                  >
+                    <Clock size={8} className="shrink-0" />
+                    En attente
+                  </div>
+                ) : (
+                  <div className={`mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-[9px] font-bold tracking-tight uppercase border whitespace-nowrap ${STATUS_COLORS[client.status]}`}>
+                    {client.status.replace(/_/g, ' ')}
+                  </div>
+                )}
               </div>
             </div>
 

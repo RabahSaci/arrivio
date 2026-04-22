@@ -409,6 +409,7 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
 
       {/* Filters Bar SLDS */}
       <div className="slds-card p-4 space-y-4">
+        {/* Ligne 1 : Recherche et Actions */}
         <div className="flex flex-wrap gap-4 items-center">
           <div className="relative flex-1 min-w-[200px]">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slds-text-secondary" />
@@ -440,14 +441,18 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
               </button>
             </>
           )}
+        </div>
 
-          <div className="flex items-center gap-2">
-            <Filter size={14} className="text-slds-text-secondary" />
-            <span className="text-[10px] font-bold text-slds-text-secondary uppercase tracking-widest">Filtres :</span>
+        {/* Ligne 2 : Les filtres sur une seule ligne dédiée */}
+        <div className="flex items-center gap-4 pt-3 border-t border-slds-border/50">
+          <div className="flex items-center gap-1.5 text-slds-text-secondary mr-2">
+            <Filter size={12} />
+            <span className="text-[9px] font-black uppercase tracking-widest">Filtres</span>
           </div>
+          
           {isAdvisor && (
             <select 
-              className="slds-input w-auto min-w-[150px]"
+              className="slds-input slds-input-compact w-auto min-w-[150px] text-[10px] h-8"
               value={filterPartner}
               onChange={(e) => setFilterPartner(e.target.value)}
             >
@@ -459,7 +464,7 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
 
           {isAdvisor && (
             <select 
-              className="slds-input w-auto min-w-[200px]"
+              className="slds-input slds-input-compact w-auto min-w-[180px] text-[10px] h-8"
               value={filterAdvisor}
               onChange={(e) => setFilterAdvisor(e.target.value)}
             >
@@ -471,7 +476,7 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
           )}
 
           <select 
-            className="slds-input w-auto"
+            className="slds-input slds-input-compact w-auto text-[10px] h-8"
             value={filterPriority}
             onChange={(e) => setFilterPriority(e.target.value)}
           >
@@ -483,7 +488,7 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
           </select>
 
           <select 
-            className="slds-input w-auto"
+            className="slds-input slds-input-compact w-auto text-[10px] h-8"
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
           >
@@ -492,6 +497,21 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
               <option key={st} value={st}>{st.replace(/_/g, ' ')}</option>
             ))}
           </select>
+
+          {(searchTerm || filterPartner !== 'ALL' || filterAdvisor !== 'ALL' || filterPriority !== 'ALL' || filterStatus !== 'ALL') && (
+            <button 
+              onClick={() => {
+                setSearchTerm('');
+                setFilterPartner('ALL');
+                setFilterAdvisor('ALL');
+                setFilterPriority('ALL');
+                setFilterStatus('ALL');
+              }}
+              className="text-[9px] font-black text-slds-brand px-1 hover:underline uppercase"
+            >
+              Réinitialiser
+            </button>
+          )}
         </div>
       </div>
 
@@ -567,9 +587,19 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
                     </td>
                     <td>
                       <div className="flex flex-col gap-1">
-                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase border w-fit ${STATUS_COLORS[item.status]}`}>
-                          {item.status.replace(/_/g, ' ')}
-                        </span>
+                        {item.status === ReferralStatus.PENDING ? (
+                          <span
+                            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-tight border w-fit whitespace-nowrap"
+                            style={{ backgroundColor: '#f1f5f9', color: '#475569', borderColor: '#cbd5e1' }}
+                          >
+                            <Clock size={9} className="shrink-0" />
+                            En attente
+                          </span>
+                        ) : (
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-tight border w-fit ${STATUS_COLORS[item.status]}`}>
+                            {item.status.replace(/_/g, ' ')}
+                          </span>
+                        )}
                         {item.isSecondaryMandate && (
                           <span className="text-[9px] font-bold text-purple-600 uppercase tracking-widest flex items-center gap-1">
                             <Share2 size={10} /> Mandat Secondaire

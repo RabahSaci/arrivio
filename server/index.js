@@ -86,7 +86,7 @@ const clientSchema = z.object({
 const sessionSchema = z.object({
   title: z.string().min(3),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Format de date YYYY-MM-DD requis"),
-  start_time: z.string().regex(/^\d{2}:\d{2}$/, "Format d'heure HH:mm requis"),
+  start_time: z.string().regex(/^\d{1,2}:\d{2}$/, "Format d'heure H:mm ou HH:mm requis"),
   duration: z.union([z.number(), z.string().regex(/^\d+$/).transform(v => parseInt(v))]),
   facilitator_name: z.string().optional(),
   advisor_name: z.string().optional(),
@@ -94,7 +94,15 @@ const sessionSchema = z.object({
   client_id: z.string().uuid().optional().nullable().or(z.literal('')),
   zoom_link: z.string().url("Format d'URL invalide").optional().or(z.literal('')),
   zoom_id: z.string().regex(/^\d*$/, "L'ID Zoom doit être numérique").optional().or(z.literal('')),
-  notes: z.string().optional()
+  notes: z.string().optional(),
+  subjects_covered: z.array(z.string()).optional(),
+  target_client_types: z.array(z.string()).optional(),
+  activity_format: z.string().optional(),
+  language_used: z.string().optional(),
+  service_setting: z.string().optional(),
+  provider_location: z.string().optional(),
+  support_services: z.string().optional(),
+  programming_type: z.string().optional().default('Service standard')
 }).passthrough(); // Allow additional fields from frontend (category, type, etc.)
 
 const contractSchema = z.object({
@@ -785,10 +793,10 @@ app.post('/api/sessions/bulk', async (req, res) => {
       }
     }
 
-    // If all pass, proceed to bulk insert
+    // If all pass, proceed to bulk upsert (using zoom_id as unique identifier if provided)
     const { data, error } = await supabaseAdmin
       .from('sessions')
-      .insert(sessions)
+      .upsert(sessions, { onConflict: 'zoom_id' })
       .select();
 
     if (error) throw error;
@@ -941,6 +949,53 @@ function getReadClient(table, req) {
   }
   return req.sb;
 }
+
+// Specific route for contracts to calculate used_sessions on the fly
+app.get('/api/contracts', async (req, res) => {
+  try {
+    const db = getAdminClient();
+    
+    // 1. Fetch all contracts using fetchAll to bypass Supabase limit
+    const contractsQuery = db.from('contracts').select('*');
+    const contracts = await fetchAll(contractsQuery);
+
+    // 2. Fetch all sessions that are linked to a contract
+    let sessions = [];
+    try {
+      const sessionsQuery = db.from('sessions').select('contract_id').not('contract_id', 'is', null);
+      sessions = await fetchAll(sessionsQuery);
+    } catch (sessErr) {
+      console.error('[GET /api/contracts] Failed to fetch sessions for counting:', sessErr.message);
+      // We don't fail the whole request if only the session count fails
+    }
+
+    // 3. Count sessions per contract_id
+    const counts = (sessions || []).reduce((acc, s) => {
+      if (s.contract_id) {
+        acc[s.contract_id] = (acc[s.contract_id] || 0) + 1;
+      }
+      return acc;
+    }, {});
+
+    console.log('[GET /api/contracts] Counts:', JSON.stringify(counts));
+    console.log('[GET /api/contracts] Contracts sample:', contracts?.slice(0, 2).map(c => ({ id: c.id, name: c.consultant_name })));
+
+    // 4. Merge counts into the contracts list
+    const results = contracts.map(c => {
+      const count = counts[c.id] || 0;
+      console.log(`[GET /api/contracts] Contract ${c.consultant_name} (${c.id}) -> used_sessions: ${count}`);
+      return {
+        ...c,
+        used_sessions: count
+      };
+    });
+
+    res.json(results);
+  } catch (err) {
+    console.error('[GET /api/contracts] Critical Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Generic proxy for other tables
 app.get('/api/:table', async (req, res) => {

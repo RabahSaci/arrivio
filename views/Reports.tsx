@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Client, Session, Partner, UserRole, ReferralStatus, SessionType } from '../types';
+import { Client, Session, Partner, UserRole, ReferralStatus, SessionType, SessionCategory } from '../types';
 import { SESSION_TYPE_LABELS, STATUS_COLORS } from '../constants';
 import { 
   FileDown, 
@@ -16,6 +16,8 @@ import {
   Search,
   Clock
 } from 'lucide-react';
+
+import * as XLSX from 'xlsx';
 
 interface ReportsProps {
   clients: Client[];
@@ -66,6 +68,35 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
     });
   }, [sessions, selectedType, startDate, endDate]);
 
+  const downloadExcel = (data: any[], filename: string) => {
+    if (data.length === 0) {
+      alert("Aucune donnée à exporter avec les filtres actuels.");
+      return;
+    }
+
+    // Create worksheet
+    const worksheet = XLSX.utils.json_to_sheet(data);
+
+    // Force ALL cells to be strings (Text format in Excel)
+    const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        const cell_address = { c: C, r: R };
+        const cell_ref = XLSX.utils.encode_cell(cell_address);
+        if (worksheet[cell_ref]) {
+          worksheet[cell_ref].t = 's'; // Set type to string
+        }
+      }
+    }
+
+    // Create workbook and append worksheet
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Report");
+
+    // Generate file and trigger download
+    XLSX.writeFile(workbook, `${filename}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   const downloadCSV = (data: any[], filename: string) => {
     if (data.length === 0) {
       alert("Aucune donnée à exporter avec les filtres actuels.");
@@ -74,11 +105,12 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
 
     const headers = Object.keys(data[0]);
     const csvRows = [
-      headers.join(','), // header row
+      headers.map(h => `"${h.replace(/"/g, '""')}"`).join(','), // header row
       ...data.map(row => 
         headers.map(fieldName => {
           const value = row[fieldName];
-          const escaped = ('' + value).replace(/"/g, '""'); // escape double quotes
+          const stringValue = (value === null || value === undefined) ? '' : String(value);
+          const escaped = stringValue.replace(/"/g, '""'); // escape double quotes
           return `"${escaped}"`; // wrap in quotes
         }).join(',')
       )
@@ -129,6 +161,95 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
       NbAbsents: s.noShowIds?.length || 0
     }));
     downloadCSV(exportData, 'Arrivio_Export_Seances');
+  };
+
+  const handleExportEstablishmentIndividual = () => {
+    // Filtrer : Type ETABLISSEMENT + Categorie INDIVIDUELLE
+    const targetSessions = filteredSessions.filter(s => 
+      s.type === SessionType.ESTABLISHMENT && s.category === SessionCategory.INDIVIDUAL
+    );
+
+    if (targetSessions.length === 0) {
+      alert("Aucune séance individuelle du service établissement trouvée pour la période sélectionnée.");
+      return;
+    }
+
+    const exportData = targetSessions.map(s => {
+      const participantId = s.participantIds?.[0];
+      const client = clients.find(c => c.id === participantId);
+      
+      const subjects = s.subjectsCovered || [];
+      const targetGroups = s.targetClientTypes || [];
+      const hasTargetGroup = targetGroups.length > 0 && !targetGroups.includes("Général - pas de groupe de clients spécifique");
+
+      // Construction des 50 colonnes selon le gabarit iEDEC
+      return {
+        "Détails sur le traitement": "", // Col 1
+        "ID du dossier à mettre à jour": "", // Col 2
+        "Type Identificateur unique": (client?.iucCrpNumber?.startsWith('1')) 
+          ? "N° d'identité SSOBL ou SMGC du client" 
+          : (client?.iucCrpNumber?.toUpperCase().startsWith('T'))
+          ? "N° de formulaire IMM5292, IMM5509 ou IMM1000"
+          : "#IUC", // Valeur par défaut
+        "Valeur de l'identificateur unique": client?.iucCrpNumber || "", // Col 4
+        "Date de naissance du client (AAAA-MM-JJ)": client?.birthDate || "", // Col 5
+        "Courriel du client": client?.email || "", // Col 6
+        "Langue officielle de préférence": "Français", // Col 7
+        "Type de programmation/d'initiative": s.programmingType || "Service standard", // Col 8
+        "Date de début de l'activité (AAAA-MM-JJ)": s.date, // Col 9
+        "Durée de l'activité (heures)": (s.duration / 60).toFixed(2), // Col 10
+        "Emplacement de l'organisation: Code postal (A#A#A#)": "L5B3C4", // Col 11
+        "Emplacement de l’organisation : Pays": "", // Col 12
+        "Emplacement du client: Code postal (A#A#A#)": "", // Col 13
+        "Emplacement du client : Pays": s.clientLocationCountry || client?.residenceCountry || client?.originCountry || "Canada", // Col 14
+        "Langue du client utilisée pendant l'activité": s.languageUsed || "Français", // Col 15
+        "Le service a-t-il été fourni dans un cadre de groupe ou individuel/familial ?": s.serviceSetting || "Informations et Orientation Individuelles/Familiales", // Col 16
+        
+        // Sujets abordés (Binary Cols 17-25)
+        "Sujet abordé : Informations avant le départ": subjects.includes("Informations avant le départ") ? "Oui" : "",
+        "Sujet abordé : Informations nationales": subjects.includes("Informations nationales") ? "Oui" : "",
+        "Sujet abordé : Informations provinciales/territoriales": subjects.includes("Informations provinciales / territoriales") ? "Oui" : "",
+        "Sujet abordé : Informations communautaires/municipales": subjects.includes("Informations communautaires / municipales") ? "Oui" : "",
+        "Sujet abordé : Emploi": subjects.includes("Emploi") || subjects.includes("Emploi, Éducation et Finances") ? "Oui" : "",
+        "Sujet abordé : Santé et bien-être": subjects.includes("Santé et bien-être") ? "Oui" : "",
+        "Sujet abordé : Communautés et opportunités francophones": subjects.includes("Communautés francophones et opportunités") ? "Oui" : "",
+        "Sujet abordé : Équité": subjects.includes("Équité") ? "Oui" : "",
+        "Sujet abordé : Peuples autochtones": subjects.includes("Peuples autochtones") ? "Oui" : "",
+
+        // Formats (Binary Cols 26-29)
+        "Format de l'activité : En personne": s.activityFormat === "En personne" ? "Oui" : "",
+        "Format de l'activité : À distance — dirigé par le personnel": (s.activityFormat || "").includes("À distance") ? "Oui" : "",
+        "Format de l'activité : À distance — auto-dirigé": s.activityFormat === "Auto-dirigé" ? "Oui" : "",
+        "Format de l'activité : À distance par courriel/message texte/téléphone": s.activityFormat === "Téléphone/Email" ? "Oui" : "",
+
+        // Groupes cibles (Binary Cols 30-41)
+        "Destiné à une population cible spécifique": hasTargetGroup ? "Oui" : "Non",
+        "Enfants (0-14 ans)": targetGroups.includes("Enfants (0-14 ans)") ? "Oui" : "",
+        "Clients formés à l'étranger dans une profession ou métier réglementé": targetGroups.includes("Clients formés à l'étranger dans une profession ou métier réglementé") ? "Oui" : "",
+        "Familles/parents/soignants": targetGroups.includes("Familles/parents/soignants") ? "Oui" : "",
+        "Minorités de langue officielle (Francophones)": targetGroups.includes("Minorités de langue officielle (Francophones)") ? "Oui" : "",
+        "Personnes handicapées": targetGroups.includes("Personnes handicapées") ? "Oui" : "",
+        "Nouveaux arrivants racisés": targetGroups.includes("Nouveaux arrivants racisés") ? "Oui" : "",
+        "Réfugiés": targetGroups.includes("Réfugiés") ? "Oui" : "",
+        "Personnes âgées (65+)": targetGroups.includes("Personnes âgées (65+)") ? "Oui" : "",
+        "Femmes": targetGroups.includes("Femmes") ? "Oui" : "",
+        "Jeunes (15-30 ans)": targetGroups.includes("Jeunes (15-30 ans)") ? "Oui" : "",
+        "2ELGBTQI+": targetGroups.includes("2ELGBTQI+ (Bispirituel; Lesbienne; Gai; Bisexuel; Transgenre; Queer; Intersexuel et autres)") ? "Oui" : "",
+
+        // Soutien (Binary Cols 42-50)
+        "Services de soutien reçus": "Non", // Col 42
+        "Garde d'enfants": "",
+        "Équipement de soutien numérique": "",
+        "Compétences en matière de soutien numérique": "",
+        "Interprétation orale": "",
+        "Dispositions en raison d’un handicap": "",
+        "Counseils à court terme": "",
+        "Transport": "",
+        "Traduction écrite": ""
+      };
+    });
+
+    downloadExcel(exportData, 'Arrivio_IRCC_Etablissement_Individuel');
   };
 
   return (
@@ -287,12 +408,18 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
              </div>
           </div>
 
-          <div className="p-4 bg-slds-bg border-t border-slds-border mt-auto">
+          <div className="p-4 bg-slds-bg border-t border-slds-border mt-auto space-y-2">
              <button 
               onClick={handleExportSessions}
-              className="slds-button slds-button-brand w-full flex items-center justify-center gap-2"
+              className="slds-button slds-button-neutral w-full flex items-center justify-center gap-2"
              >
                <Download size={14} /> Exporter Séances (.csv)
+             </button>
+             <button 
+              onClick={handleExportEstablishmentIndividual}
+              className="slds-button slds-button-brand w-full flex items-center justify-center gap-2"
+             >
+               <TableIcon size={14} /> Rapport IRCC Établissement (.xlsx)
              </button>
           </div>
         </div>

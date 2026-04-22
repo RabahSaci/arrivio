@@ -252,7 +252,7 @@ const Layout: React.FC<LayoutProps> = ({
   return (
     <div className="flex min-h-screen bg-slate-50">
       {/* Sidebar - SLDS Theme */}
-      <aside className="w-64 flex flex-col fixed h-full z-20">
+      <aside className="w-64 flex flex-col fixed h-full z-20 bg-white border-r border-slate-200">
         {/* Logo Container */}
         <div className="pt-6 px-8 pb-4 flex flex-col items-center justify-center">
           {customLogoUrl ? (

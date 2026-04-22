@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Session, SessionType, SessionCategory, FacilitatorType, Client, Partner, PartnerType, Contract, UserRole, Profile } from '../types';
 import { SESSION_TYPE_LABELS } from '../constants';
 import ConfirmModal from '../components/ConfirmModal';
@@ -22,7 +22,9 @@ import {
   Clock,
   MapPin,
   Info,
-  CheckCircle2
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 interface CalendarViewProps {
@@ -42,11 +44,16 @@ interface CalendarViewProps {
 
 const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners, contracts, activeRole, currentUserName, currentUserId, onAddSession, onUpdateSession, onDeleteSession, allProfiles, onSelectClient }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const isAdminOrManager = activeRole === UserRole.ADMIN || activeRole === UserRole.MANAGER;
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [viewingSession, setViewingSession] = useState<Session | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState('');
+
+  // États pour les filtres intelligents
+  const [showFilters, setShowFilters] = useState(false);
+  const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const [filterService, setFilterService] = useState<SessionType | 'ALL'>('ALL');
   const [filterAdvisor, setFilterAdvisor] = useState<string>('ALL');
@@ -54,6 +61,29 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
   const [filterFacilitatorName, setFilterFacilitatorName] = useState<string>('ALL');
   const [filterStartDate, setFilterStartDate] = useState<string>('');
   const [filterEndDate, setFilterEndDate] = useState<string>('');
+
+  // Gestion de l'auto-masquage
+  const handleMouseEnter = () => {
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = null;
+    }
+  };
+
+  const handleMouseLeave = () => {
+    if (showFilters) {
+      hideTimeoutRef.current = setTimeout(() => {
+        setShowFilters(false);
+      }, 3000); // 3 secondes
+    }
+  };
+
+  // Cleanup au démontage
+  useEffect(() => {
+    return () => {
+      if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
+    };
+  }, []);
 
   const advisorOptions = useMemo(() => {
     return allProfiles
@@ -114,6 +144,17 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
       return matchService && matchAdvisor && matchFacType && matchFacName && matchDate;
     });
   }, [sessions, filterService, filterAdvisor, filterFacilitatorType, filterFacilitatorName, filterStartDate, filterEndDate]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (filterService !== 'ALL') count++;
+    if (filterAdvisor !== 'ALL') count++;
+    if (filterFacilitatorType !== 'ALL') count++;
+    if (filterFacilitatorName !== 'ALL') count++;
+    if (filterStartDate !== '') count++;
+    if (filterEndDate !== '') count++;
+    return count;
+  }, [filterService, filterAdvisor, filterFacilitatorType, filterFacilitatorName, filterStartDate, filterEndDate]);
 
   const stats = useMemo(() => {
     const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD Local
@@ -197,8 +238,42 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
         </div>
       </div>
 
-      {/* Filtres SLDS */}
-      <div className="slds-card px-10 py-8 flex flex-col gap-6">
+      {/* Barre d'actions SLDS */}
+      <div className="flex gap-4 items-center mb-2">
+        <button 
+          onClick={() => setShowFilters(!showFilters)}
+          className={`slds-button ${showFilters || activeFiltersCount > 0 ? 'slds-button-brand' : 'slds-button-neutral'} flex items-center gap-2 relative`}
+        >
+          <div className="relative flex items-center gap-2">
+            <Filter size={14} />
+            {activeFiltersCount > 0 && (
+              <span className="absolute -top-2 -left-2 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 border-2 border-white animate-in zoom-in duration-300">
+                {activeFiltersCount}
+              </span>
+            )}
+          </div>
+          {showFilters ? 'Masquer les filtres' : 'Afficher les filtres'}
+          {showFilters ? <ChevronUp size={14} className="ml-1" /> : <ChevronDown size={14} className="ml-1" />}
+        </button>
+
+        <button 
+          onClick={() => { 
+            setEditingSession(null);
+            setShowSessionModal(true); 
+          }}
+          className="slds-button slds-button-brand !px-6 ml-auto"
+        >
+          <Plus size={14} className="mr-2" /> Planifier
+        </button>
+      </div>
+
+      {/* Filtres SLDS avec Auto-hide */}
+      {showFilters && (
+        <div 
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          className="slds-card px-10 py-8 flex flex-col gap-6 animate-in fade-in slide-in-from-top-2 duration-200"
+        >
         {/* Ligne 1 : Services et Conseillers */}
         <div className="flex flex-nowrap gap-4 items-center overflow-x-auto no-scrollbar">
           <div className="flex items-center gap-2">
@@ -240,18 +315,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
             </select>
           </div>
 
-          <div className="ml-auto">
-             <button 
-               onClick={() => { 
-                  setEditingSession(null);
-                  setShowSessionModal(true); 
-               }}
-               className="slds-button slds-button-brand !px-6"
-             >
-               <Plus size={14} className="mr-2" /> Planifier
-             </button>
           </div>
-        </div>
 
         {/* Ligne 2 : Intervenants et Période (Linéaire) */}
         <div className="flex flex-nowrap items-center gap-6 pt-3 border-t border-slds-border/50 overflow-x-auto no-scrollbar">
@@ -297,6 +361,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
           </div>
         </div>
       </div>
+      )}
 
       {/* Calendrier Grid SLDS */}
       <div className="slds-card overflow-hidden">
@@ -324,7 +389,13 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
             return (
               <div 
                 key={idx} 
-                onDoubleClick={() => { if(date) { setEditingSession(null); setShowSessionModal(true); } }}
+                onDoubleClick={() => { 
+                  if(date) { 
+                    setSelectedDate(getLocalDateString(date));
+                    setEditingSession(null); 
+                    setShowSessionModal(true); 
+                  } 
+                }}
                 className={`border-r border-b border-slds-border p-1 relative transition-colors cursor-pointer select-none ${date ? 'bg-white hover:bg-slds-bg' : 'bg-slds-bg'} ${isToday ? 'bg-blue-50' : ''}`}
               >
                 {date && (
@@ -372,12 +443,21 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
 
              <div className="p-6">
                 <div className="space-y-6">
+                   <div className="mb-4">
+                      <div className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase text-white shadow-sm ${getSessionStyle(viewingSession.type)}`}>
+                        {SESSION_TYPE_LABELS[viewingSession.type]}
+                      </div>
+                   </div>
+
                    <div className="grid grid-cols-2 gap-6">
                      <div className="space-y-1">
                         <p className="text-[10px] font-bold text-slds-text-secondary uppercase">Planification</p>
                         <div className="flex items-center gap-2 text-sm font-bold text-slds-text-primary">
                           <Clock size={14} className="text-slds-brand" /> 
                           {(() => {
+                            if (!viewingSession.date || typeof viewingSession.date !== 'string' || !viewingSession.date.includes('-')) {
+                              return "Date invalide";
+                            }
                             const [y, m, d] = viewingSession.date.split('-').map(Number);
                             return new Date(y, m - 1, d).toLocaleDateString('fr-FR');
                           })()} à {viewingSession.startTime}
@@ -457,10 +537,12 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
 
       <SessionModal 
         isOpen={showSessionModal}
-        onClose={() => setShowSessionModal(false)}
+        onClose={() => { setShowSessionModal(false); setEditingSession(null); setSelectedDate(''); }}
         session={editingSession}
+        initialDate={selectedDate}
         initialCategory={SessionCategory.GROUP}
         clients={clients}
+        sessions={sessions}
         partners={partners}
         contracts={contracts}
         allProfiles={allProfiles} 

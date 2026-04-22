@@ -23,7 +23,8 @@ import {
   ArrowUpDown,
   Activity,
   Share2,
-  Trash2
+  Trash2,
+  Clock
 } from 'lucide-react';
 
 interface ClientListProps {
@@ -473,7 +474,12 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
             onChange={(e) => setFilterStatus(e.target.value as any)}
           >
             <option value="ALL">Tous Statuts</option>
-            {Object.values(ReferralStatus).map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+            <option value={ReferralStatus.PENDING}>En attente</option>
+            <option value={ReferralStatus.REFERRED}>Référé</option>
+            <option value={ReferralStatus.ACKNOWLEDGED}>Pris en charge</option>
+            <option value={ReferralStatus.CONTACTED}>Contacté</option>
+            <option value={ReferralStatus.IN_PROGRESS}>En cours</option>
+            <option value={ReferralStatus.CLOSED}>Terminé</option>
           </select>
 
           <select 
@@ -603,9 +609,23 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
                       {client.email}
                     </td>
                     <td className="text-center">
-                      <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight border ${STATUS_COLORS[client.status]}`}>
-                        {client.status.replace(/_/g, ' ')}
-                      </span>
+                      {client.status === ReferralStatus.PENDING ? (
+                        <span
+                          className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-tight border whitespace-nowrap"
+                          style={{
+                            backgroundColor: '#f1f5f9',
+                            color: '#475569',
+                            borderColor: '#cbd5e1',
+                          }}
+                        >
+                          <Clock size={9} className="shrink-0" />
+                          En attente
+                        </span>
+                      ) : (
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-tight border ${STATUS_COLORS[client.status]}`}>
+                          {client.status.replace(/_/g, ' ')}
+                        </span>
+                      )}
                     </td>
                     <td>
                       <div className="text-xs font-semibold text-slds-text-primary">

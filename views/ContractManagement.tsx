@@ -58,6 +58,7 @@ const ContractManagement: React.FC<ContractManagementProps> = ({
   const [showAddContractModal, setShowAddContractModal] = useState(false);
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
   const [showAddInvoiceModal, setShowAddInvoiceModal] = useState<Contract | null>(null);
+  const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   const [contractToDelete, setContractToDelete] = useState<string | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
   // État local pour les montants en cours de saisie (pour éviter les lags réseau à chaque caractère)
@@ -78,6 +79,14 @@ const ContractManagement: React.FC<ContractManagementProps> = ({
 
   const filteredSessions = useMemo(() => {
     return consultantSessions.filter(s => {
+      // Prioritize filtering by contractId if a specific contract is selected
+      if (selectedContractId) {
+        return s.contractId === selectedContractId;
+      }
+      if (showAddInvoiceModal) {
+        return s.contractId === showAddInvoiceModal.id;
+      }
+      
       const matchConsultant = filterConsultant === 'ALL' || s.facilitatorName === filterConsultant;
       const matchStatus = 
         filterInvoiceStatus === 'ALL' ||
@@ -86,7 +95,7 @@ const ContractManagement: React.FC<ContractManagementProps> = ({
         (filterInvoiceStatus === 'PAID' && s.invoicePaid);
       return matchConsultant && matchStatus;
     });
-  }, [consultantSessions, filterConsultant, filterInvoiceStatus]);
+  }, [consultantSessions, filterConsultant, filterInvoiceStatus, showAddInvoiceModal]);
 
   const financials = useMemo(() => {
     const totalGlobalBudget = contracts.reduce((acc, c) => acc + (c.amount || 0), 0);
@@ -170,14 +179,19 @@ const ContractManagement: React.FC<ContractManagementProps> = ({
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {contracts.map(contract => {
-              // Calcul dynamique du volume consommé basé sur contract_id
+              // Calcul dynamique du solde basé sur les séances réelles liées
               const actualUsedSessions = sessions.filter(s => s.contractId === contract.id).length;
               const percentage = Math.round((actualUsedSessions / contract.totalSessions) * 100);
               const isAlert = percentage >= 90;
+              const isSelected = selectedContractId === contract.id;
               
               return (
-                <div key={contract.id} className="slds-card p-6 relative group hover:border-slds-brand transition-all">
-                  <div className="flex justify-between items-start mb-4">
+                <div 
+                  key={contract.id} 
+                  onClick={() => setSelectedContractId(isSelected ? null : contract.id)}
+                  className={`group slds-card p-6 cursor-pointer transition-all ${isSelected ? 'ring-2 ring-indigo-500 bg-indigo-50/30' : 'hover:shadow-md'}`}
+                >
+                  <div className="flex justify-between items-start mb-6">
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-black text-slds-brand uppercase tracking-tighter truncate">{contract.consultantName}</p>
                       <h4 className="font-bold text-slate-900 truncate">Contrat #{contract.id.substring(0, 8)}</h4>
@@ -263,7 +277,9 @@ const ContractManagement: React.FC<ContractManagementProps> = ({
                   <td className="p-4">
                     <div className="flex flex-col">
                       <span className="text-xs font-bold text-slate-900">{session.title}</span>
-                      <span className="text-[9px] text-slate-400 font-bold">{new Date(session.date).toLocaleDateString()}</span>
+                      <span className="text-[9px] text-slate-400 font-bold">
+                        {session.date.split('-').reverse().join('/')}
+                      </span>
                     </div>
                   </td>
                   <td className="p-4"><span className="text-xs font-bold text-slate-700">{session.facilitatorName}</span></td>

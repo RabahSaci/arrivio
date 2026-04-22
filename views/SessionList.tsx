@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { Session, SessionType, SessionCategory, Client, FacilitatorType, AttendanceStatus, Partner, PartnerType, Contract, UserRole, Profile } from '../types';
-import { SESSION_TYPE_LABELS } from '../constants';
+import { SESSION_TYPE_LABELS, SESSION_CATEGORY_LABELS, ATTENDANCE_STATUS_LABELS } from '../constants';
 import { apiService } from '../services/apiService';
 import ConfirmModal from '../components/ConfirmModal';
 import Pagination from '../components/Pagination';
@@ -276,6 +276,53 @@ const SessionList: React.FC<SessionListProps> = ({
     handleCloseModal();
   };
 
+  const downloadWebinarTemplate = () => {
+    try {
+      const templateData = [
+        {
+          "Zoom ID": "85212345678",
+          "Titre de la séance": "Titre du Webinaire",
+          "Type de service": "Établissement",
+          "Date": "2025-04-20",
+          "Heure": "14:00",
+          "Durée (min)": 60,
+          "Courriel Participant": "client@email.com",
+          "IUC Participant": "Optionnel",
+          "Intervenant": "Nom ou Email",
+          "Type d'intervenant": "Organisme ou Consultant",
+          "Courriel du conseiller": "votre@email.com",
+          "Notes": "Notes optionnelles"
+        }
+      ];
+
+      const ws = XLSX.utils.json_to_sheet(templateData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Gabarit Webinaire");
+      
+      // Génération binaire et téléchargement manuel via Blob
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'binary' });
+      const s2ab = (s: string) => {
+        const buf = new ArrayBuffer(s.length);
+        const view = new Uint8Array(buf);
+        for (let i = 0; i < s.length; i++) view[i] = s.charCodeAt(i) & 0xFF;
+        return buf;
+      };
+      
+      const blob = new Blob([s2ab(wbout)], { type: "application/octet-stream" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "Arrivio_Gabarit_Webinaire.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error("Erreur lors du téléchargement du gabarit:", error);
+      alert("Une erreur est survenue lors de la génération du fichier. Veuillez réessayer.");
+    }
+  };
+
   const handleImportExcel = () => {
     fileInputRef.current?.click();
   };
@@ -307,51 +354,68 @@ const SessionList: React.FC<SessionListProps> = ({
           };
 
           const idx = {
-            iuc: findIdx(['iuc', 'crp', '#iuc', '#crp']),
+            iuc: findIdx(['iuc', 'crp', '#iuc', '#crp', 'iuc participant']),
+            email: findIdx(['courriel participant', 'email participant', 'courriel', 'email']),
+            zoomId: findIdx(['zoom id', 'meeting id', 'réunion id']),
             type: findIdx(['type de service', 'type', 'service']),
             date: findIdx(['date']),
             startTime: findIdx(['heure', 'start time']),
-            duration: findIdx(['durée', 'duration', 'duree']),
+            duration: findIdx(['durée', 'duration', 'duree', 'durée (min)']),
             status: findIdx(['état de présence', 'etat de presence', 'statut', 'status', 'présence']),
             needs: findIdx(['besoins discutés', 'besoins']),
             actions: findIdx(['actions planifiées', 'actions']),
             notes: findIdx(['notes générales', 'notes']),
-            advisor: findIdx(['courriel', 'email', 'conseiller', 'advisor_name']),
-            createdAt: findIdx(['heure de saisie', 'saisie'])
+            facilitatorName: findIdx(['intervenant', 'facilitateur', 'facilitator_name']),
+            advisorEmail: findIdx(['courriel du conseiller', 'email conseiller', 'advisor email']),
+            facilitatorType: findIdx(['type d\'intervenant', 'type intervenant', 'facilitator type']),
+            createdAt: findIdx(['heure de saisie', 'saisie']),
+            title: findIdx(['titre de la séance', 'nom du webinaire', 'objet'])
           };
 
-          if (idx.iuc === -1 || idx.date === -1) {
-            throw new Error("Colonnes obligatoires manquantes : #IUC ou #CRP et Date sont requis.");
+          const isGroupMode = activeCategory === SessionCategory.GROUP;
+
+          // Valider les colonnes vitales selon le mode
+          if (isGroupMode) {
+            if (idx.zoomId === -1 || idx.date === -1) {
+              throw new Error("Colonnes obligatoires manquantes pour Webinaire : Zoom ID et Date sont requis.");
+            }
+          } else {
+            if (idx.iuc === -1 || idx.date === -1) {
+              throw new Error("Colonnes obligatoires manquantes : #IUC ou #CRP et Date sont requis.");
+            }
           }
 
           const formatDate = (val: any) => {
             if (!val) return null;
-            // Native Excel dates
             if (val instanceof Date) {
-              const d = new Date(val.getTime() - (val.getTimezoneOffset() * 60000));
-              return d.toISOString().split('T')[0];
+              const y = val.getFullYear();
+              const m = String(val.getMonth() + 1).padStart(2, '0');
+              const d = String(val.getDate()).padStart(2, '0');
+              return `${y}-${m}-${d}`;
+            }
+            if (!isNaN(Number(val)) && Number(val) > 30000) {
+              // Excel date serial number
+              const d = new Date((Number(val) - 25569) * 86400 * 1000);
+              const y = d.getFullYear();
+              const m = String(d.getMonth() + 1).padStart(2, '0');
+              const day = String(d.getDate()).padStart(2, '0');
+              return `${y}-${m}-${day}`;
             }
             const strVal = val.toString().trim();
-            
-            // Handle DD-MM-YYYY or DD/MM/YYYY string formats
             const match = strVal.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
             if (match) {
-              const [_, d, m, y] = match;
-              return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+              return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
             }
-            
             return strVal;
           };
 
           const formatTimestamp = (val: any) => {
             if (!val) return undefined;
-            // Native Excel dates
             if (val instanceof Date) {
               const d = new Date(val.getTime() - (val.getTimezoneOffset() * 60000));
               return d.toISOString();
             }
             const strVal = val.toString().trim();
-            // Handle DD-MM-YYYY HH:mm or DD/MM/YYYY HH:mm string formats
             const matchDateTime = strVal.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
             if (matchDateTime) {
               const [_, d, m, y, hh, mm, ss] = matchDateTime;
@@ -360,8 +424,31 @@ const SessionList: React.FC<SessionListProps> = ({
               const second = ss ? ss.padStart(2, '0') : '00';
               return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T${hour}:${minute}:${second}.000Z`;
             }
-            // Fallback for native format or unhandled formats (Supabase Postgres will try to cast it)
             return strVal;
+          };
+
+          const formatTime = (val: any) => {
+            if (!val) return '09:00';
+            if (val instanceof Date) {
+              const h = val.getHours().toString().padStart(2, '0');
+              const m = val.getMinutes().toString().padStart(2, '0');
+              return `${h}:${m}`;
+            }
+            let strVal = val.toString().trim().replace('h', ':');
+            
+            // Handle Excel numeric time if leaked as string
+            if (!isNaN(Number(strVal)) && Number(strVal) < 1) {
+              const totalMinutes = Math.round(Number(strVal) * 24 * 60);
+              const h = Math.floor(totalMinutes / 60).toString().padStart(2, '0');
+              const m = (totalMinutes % 60).toString().padStart(2, '0');
+              return `${h}:${m}`;
+            }
+
+            const match = strVal.match(/^(\d{1,2}):(\d{2})/);
+            if (match) {
+              return `${match[1].padStart(2, '0')}:${match[2]}`;
+            }
+            return '09:00';
           };
 
           const getValue = (row: any[], index: number) => {
@@ -369,131 +456,194 @@ const SessionList: React.FC<SessionListProps> = ({
             return row[index].toString().trim();
           };
 
+          const normalize = (s: string) => {
+            if (!s) return '';
+            let res = s.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (/^\d+$/.test(res)) {
+              res = res.replace(/^0+/, '') || '0';
+            }
+            return res;
+          };
+
+          const findClient = (iucStr: string, emailStr: string) => {
+            const normalizedIuc = normalize(iucStr);
+            const normalizedEmail = emailStr.toLowerCase().trim();
+            
+            return clients.find(c => {
+              // Priority 1: Email matching
+              if (normalizedEmail && c.email && c.email.toLowerCase().trim() === normalizedEmail) return true;
+              // Priority 2: IUC matching
+              if (normalizedIuc && c.iucCrpNumber && normalize(c.iucCrpNumber) === normalizedIuc) return true;
+              return false;
+            });
+          };
+
           const newSessions: any[] = [];
-          const failedIucs: string[] = [];
+          const failedIdentifiers: string[] = [];
           let skippedFutureDates = 0;
           const today = getTodayString();
 
-          for (const row of rows) {
-            const iuc = getValue(row, idx.iuc);
-            if (!iuc) continue;
+          if (isGroupMode) {
+            // Logique de regroupement par Zoom ID
+            const groupMap = new Map<string, any>();
 
-            // Protection : Pas de sessions individuelles dans le futur pour les conseillers
-            const sessionDate = formatDate(row[idx.date]);
-            if (activeRole === UserRole.ADVISOR && sessionDate && sessionDate > today) {
-              skippedFutureDates++;
-              continue;
-            }
+            for (const row of rows) {
+              const zoomId = getValue(row, idx.zoomId);
+              if (!zoomId) continue;
 
-            const normalize = (s: string) => {
-              if (!s) return '';
-              // 1. Alphanumérique de base
-              let res = s.toLowerCase().replace(/[^a-z0-9]/g, '');
-              // 2. Si c'est purement numérique, on retire les zéros en tête (cas Excel)
-              if (/^\d+$/.test(res)) {
-                res = res.replace(/^0+/, '') || '0';
+              const sessionDate = formatDate(row[idx.date]);
+              const iuc = getValue(row, idx.iuc);
+              const email = getValue(row, idx.email);
+
+              const client = findClient(iuc, email);
+              if (!client) {
+                failedIdentifiers.push(email || iuc || "Inconnu");
+                continue;
               }
-              return res;
-            };
 
-            const normalizedIuc = normalize(iuc);
-            const client = clients.find(c => {
-              if (!c.iucCrpNumber) return false;
-              return normalize(c.iucCrpNumber) === normalizedIuc;
-            });
-            
-            if (!client) {
-              console.warn(`[IMPORT] Aucun client trouvé pour l'IUC/CRP: "${iuc}"`);
-              failedIucs.push(iuc);
-              continue;
+                if (!groupMap.has(zoomId)) {
+                  const advisorEmailFromExcel = getValue(row, idx.advisorEmail);
+                  const facilitatorNameFromExcel = getValue(row, idx.facilitatorName);
+                  const facilitatorTypeFromExcel = getValue(row, idx.facilitatorType).toLowerCase().includes('consultant') 
+                    ? FacilitatorType.CONSULTANT 
+                    : FacilitatorType.ORGANIZATION;
+
+                  const matchedAdvisor = advisorEmailFromExcel 
+                    ? allProfiles.find(p => p.email && p.email.toLowerCase() === advisorEmailFromExcel.toLowerCase())
+                    : null;
+
+                  const facilitatorName = facilitatorNameFromExcel || (matchedAdvisor ? `${matchedAdvisor.firstName} ${matchedAdvisor.lastName}` : currentUserName);
+
+                  // Auto-link to active contract if it's a consultant - USE ROBUST NORMALIZATION
+                  let contractId = undefined;
+                  if (facilitatorTypeFromExcel === FacilitatorType.CONSULTANT) {
+                    const normalizedFacilitator = normalize(facilitatorName);
+                    const activeContract = contracts.find(c => 
+                      normalize(c.consultantName) === normalizedFacilitator && 
+                      c.status === 'ACTIVE' &&
+                      sessionDate >= c.startDate &&
+                      sessionDate <= c.endDate
+                    );
+                    if (activeContract) {
+                      contractId = activeContract.id;
+                    }
+                  }
+
+                  const typeLabel = getValue(row, idx.type).toLowerCase();
+                  let type = SessionType.ESTABLISHMENT;
+                  if (typeLabel.includes('emploi')) type = SessionType.EMPLOYMENT;
+                  else if (typeLabel.includes('rtce')) type = SessionType.RTCE;
+
+                  groupMap.set(zoomId, {
+                    title: getValue(row, idx.title) || `Webinaire ${zoomId}`,
+                    type,
+                    category: SessionCategory.GROUP,
+                    date: sessionDate,
+                    startTime: formatTime(row[idx.startTime]),
+                    duration: parseInt(getValue(row, idx.duration)) || 60,
+                    participantIds: [],
+                    noShowIds: [],
+                    location: 'Zoom',
+                    zoomId: zoomId,
+                    facilitatorName,
+                    facilitatorType: facilitatorTypeFromExcel,
+                    advisorName: matchedAdvisor ? `${matchedAdvisor.firstName} ${matchedAdvisor.lastName}` : currentUserName,
+                    notes: getValue(row, idx.notes),
+                    advisorId: matchedAdvisor?.id || currentUserId,
+                    contractId,
+                    needsInterpretation: false
+                  });
+                }
+
+              const group = groupMap.get(zoomId);
+              if (!group.participantIds.includes(client.id)) {
+                group.participantIds.push(client.id);
+              }
             }
 
-            const typeLabel = getValue(row, idx.type).toLowerCase();
-            let type = SessionType.ESTABLISHMENT;
-            if (typeLabel.includes('emploi')) type = SessionType.EMPLOYMENT;
-            else if (typeLabel.includes('rtce')) type = SessionType.RTCE;
-            else if (typeLabel.includes('jumelage')) type = SessionType.MATCHING;
-            else if (typeLabel.includes('connexion')) type = SessionType.COMMUNITY_CONNECTION;
+            // Convert map to array
+            newSessions.push(...Array.from(groupMap.values()));
 
-            const statusLabel = getValue(row, idx.status).toLowerCase();
-            let status = AttendanceStatus.PRESENT;
-            if (statusLabel.includes('absent')) status = AttendanceStatus.ABSENT;
-            else if (statusLabel.includes('annule')) status = AttendanceStatus.CANCELLED;
-            else if (statusLabel.includes('décalée')) status = AttendanceStatus.DECALEE;
+          } else {
+            // Logique Individuelle classique
+            for (const row of rows) {
+              const iuc = getValue(row, idx.iuc);
+              const email = getValue(row, idx.email);
+              if (!iuc && !email) continue;
 
-            const advisorIdentifierFromExcel = getValue(row, idx.advisor);
-            const matchedProfile = advisorIdentifierFromExcel 
-              ? allProfiles.find(p => p.email && p.email.toLowerCase() === advisorIdentifierFromExcel.toLowerCase()) || 
-                allProfiles.find(p => `${p.firstName} ${p.lastName}`.toLowerCase() === advisorIdentifierFromExcel.toLowerCase())
-              : null;
+              const sessionDate = formatDate(row[idx.date]);
+              if (activeRole === UserRole.ADVISOR && sessionDate && sessionDate > today) {
+                skippedFutureDates++;
+                continue;
+              }
 
-            newSessions.push({
-              title: `${client.firstName} ${client.lastName}`,
-              type,
-              category: SessionCategory.INDIVIDUAL,
-              date: formatDate(row[idx.date]),
-              startTime: getValue(row, idx.startTime) || '09:00',
-              duration: parseInt(getValue(row, idx.duration)) || 60,
-              participantIds: [client.id],
-              noShowIds: status === AttendanceStatus.ABSENT ? [client.id] : [],
-              location: 'CFGT',
-              notes: getValue(row, idx.notes),
-              facilitatorName: matchedProfile ? `${matchedProfile.firstName} ${matchedProfile.lastName}` : (advisorIdentifierFromExcel || currentUserName),
-              facilitatorType: FacilitatorType.ORGANIZATION,
-              advisorName: matchedProfile ? `${matchedProfile.firstName} ${matchedProfile.lastName}` : (advisorIdentifierFromExcel || currentUserName),
-              discussedNeeds: getValue(row, idx.needs),
-              actions: getValue(row, idx.actions),
-              individualStatus: status,
-              needsInterpretation: false,
-              advisor_id: matchedProfile?.id || currentUserId,
-              ...(getValue(row, idx.createdAt) && { created_at: formatTimestamp(row[idx.createdAt]) })
-            });
+              const client = findClient(iuc, email);
+              if (!client) {
+                failedIdentifiers.push(email || iuc);
+                continue;
+              }
+
+              const typeLabel = getValue(row, idx.type).toLowerCase();
+              let type = SessionType.ESTABLISHMENT;
+              if (typeLabel.includes('emploi')) type = SessionType.EMPLOYMENT;
+              else if (typeLabel.includes('rtce')) type = SessionType.RTCE;
+
+              const statusLabel = getValue(row, idx.status).toLowerCase();
+              let status = AttendanceStatus.PRESENT;
+              if (statusLabel.includes('absent')) status = AttendanceStatus.ABSENT;
+              else if (statusLabel.includes('annule')) status = AttendanceStatus.CANCELLED;
+              else if (statusLabel.includes('décalée')) status = AttendanceStatus.DECALEE;
+
+              const advisorIdentifierFromExcel = getValue(row, idx.advisor);
+              const matchedProfile = advisorIdentifierFromExcel 
+                ? allProfiles.find(p => p.email && p.email.toLowerCase() === advisorIdentifierFromExcel.toLowerCase()) || 
+                  allProfiles.find(p => `${p.firstName} ${p.lastName}`.toLowerCase() === advisorIdentifierFromExcel.toLowerCase())
+                : null;
+
+              newSessions.push({
+                title: `${client.firstName} ${client.lastName}`,
+                type,
+                category: SessionCategory.INDIVIDUAL,
+                date: sessionDate,
+                startTime: formatTime(row[idx.startTime]),
+                duration: parseInt(getValue(row, idx.duration)) || 60,
+                participantIds: [client.id],
+                noShowIds: status === AttendanceStatus.ABSENT ? [client.id] : [],
+                location: 'CFGT',
+                notes: getValue(row, idx.notes),
+                facilitatorName: matchedProfile ? `${matchedProfile.firstName} ${matchedProfile.lastName}` : (advisorIdentifierFromExcel || currentUserName),
+                facilitatorType: FacilitatorType.ORGANIZATION,
+                advisorName: matchedProfile ? `${matchedProfile.firstName} ${matchedProfile.lastName}` : (advisorIdentifierFromExcel || currentUserName),
+                discussedNeeds: getValue(row, idx.needs),
+                actions: getValue(row, idx.actions),
+                individualStatus: status,
+                needsInterpretation: false,
+                advisor_id: matchedProfile?.id || currentUserId,
+                ...(getValue(row, idx.createdAt) && { created_at: formatTimestamp(row[idx.createdAt]) })
+              });
+            }
           }
 
           if (newSessions.length > 0) {
             await apiService.bulkCreateSessions(newSessions);
-            let successMsg = `${newSessions.length} séance(s) importée(s) avec succès.`;
+            let successMsg = isGroupMode 
+              ? `${newSessions.length} webinaire(s) importé(s) avec succès.`
+              : `${newSessions.length} séance(s) importée(s) avec succès.`;
+            
             if (skippedFutureDates > 0) {
-              successMsg += `\n\n⚠️ ${skippedFutureDates} séance(s) individuelle(s) n'ont pas été importées car elles étaient datées dans le futur. Les conseillers ne peuvent consigner que des sessions passées ou présentes.`;
+              successMsg += `\n\n⚠️ ${skippedFutureDates} séance(s) individuelle(s) ont été ignorées (date dans le futur).`;
             }
-            if (failedIucs.length > 0) {
-              successMsg += `\n\nAttention: ${failedIucs.length} ligne(s) ont été ignorées car l'IUC n'a pas été trouvé :\n- ` + [...new Set(failedIucs)].join("\n- ");
+            if (failedIdentifiers.length > 0) {
+              successMsg += `\n\nAttention: ${failedIdentifiers.length} participant(s) n'ont pas été trouvés :\n- ` + [...new Set(failedIdentifiers)].slice(0, 10).join("\n- ") + (failedIdentifiers.length > 10 ? "\n..." : "");
             }
             alert(successMsg);
             window.location.reload(); 
           } else {
-            let msg = "Aucune séance n'a été importée.";
-            if (skippedFutureDates > 0) {
-              msg += `\n\n⚠️ ${skippedFutureDates} séance(s) individuelle(s) ont été ignorées car elles étaient datées dans le futur.`;
-            }
-            if (failedIucs.length > 0) {
-              msg += "\n\nLes identifiants suivants n'ont pas été trouvés dans la base de données :\n- " + [...new Set(failedIucs)].join("\n- ");
-              msg += "\n\nVérifiez que ces numéros correspondent exactement à ce qui est affiché dans votre liste de clients.";
-            } else if (skippedFutureDates === 0) {
-              msg += " Vérifiez que votre fichier contient bien des données sous les en-têtes corrects.";
-            }
-            alert(msg);
+            alert("Aucune séance n'a été importée. Vérifiez vos identifiants (Email ou IUC) et le Zoom ID.");
           }
 
         } catch (err: any) {
-          const fieldMap: Record<string, string> = {
-            'title': 'Nom du Client',
-            'date': 'Date',
-            'start_time': 'Heure (Start Time)',
-            'duration': 'Durée',
-            'facilitator_name': 'Facilitateur',
-            'advisor_name': 'Conseiller/Email',
-            'contract_id': 'Contrat'
-          };
-
-          if (err.details && err.details.rowIndex !== undefined) {
-             const { rowIndex, field, clientName, error } = err.details;
-             const mappedField = fieldMap[field] || field;
-             const excelLine = rowIndex + 2; // +1 for header, +1 for 1-based indexing
-             alert(`Erreur d'importation (Ligne ${excelLine})\n-----------------------------------\nClient : ${clientName || 'Inconnu'}\nChamp : ${mappedField}\n\nRaison : ${error}`);
-          } else {
-             alert("Erreur lors de l'import : " + err.message);
-          }
+           alert("Erreur lors de l'import : " + err.message);
         } finally {
           setIsImporting(false);
           if (fileInputRef.current) fileInputRef.current.value = '';
@@ -547,6 +697,16 @@ const SessionList: React.FC<SessionListProps> = ({
                 </>
               )}
             </button>
+            
+            {activeCategory === SessionCategory.GROUP && (
+              <button 
+                onClick={downloadWebinarTemplate}
+                className="slds-button slds-button-neutral !px-4 !py-2 flex items-center gap-2 text-slds-brand"
+                title="Télécharger le modèle Excel pour les webinaires"
+              >
+                <FileText size={14} /> Modèle Webinaire
+              </button>
+            )}
             <button 
               onClick={() => setShowModal(activeCategory === SessionCategory.INDIVIDUAL ? 'individual' : 'group')}
               className="slds-button slds-button-brand !px-4 !py-2 w-full lg:w-auto"
@@ -597,7 +757,7 @@ const SessionList: React.FC<SessionListProps> = ({
               onChange={(e) => setFilterAttendance(e.target.value as any)}
             >
               <option value="ALL">Statuts</option>
-              {Object.values(AttendanceStatus).map(s => <option key={s} value={s}>{s}</option>)}
+              {Object.values(AttendanceStatus).map(s => <option key={s} value={s}>{ATTENDANCE_STATUS_LABELS[s]}</option>)}
             </select>
           )}
 
@@ -938,6 +1098,7 @@ const SessionList: React.FC<SessionListProps> = ({
         clients={clients}
         partners={partners}
         contracts={contracts}
+        sessions={sessions}
         allProfiles={allProfiles}
         activeRole={activeRole}
         currentUserName={currentUserName}

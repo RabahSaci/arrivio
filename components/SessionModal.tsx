@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Session, 
   SessionType, 
@@ -13,7 +13,7 @@ import {
   UserRole,
   Profile
 } from '../types';
-import { SESSION_TYPE_LABELS } from '../constants';
+import { SESSION_TYPE_LABELS, IRCC_COUNTRIES } from '../constants';
 import ParticipantManager from './ParticipantManager';
 import { 
   X, 
@@ -32,18 +32,49 @@ import {
   CheckCircle2,
   ChevronRight,
   Search,
+  Hash,
   UserCheck,
-  UserX
+  UserX,
+  Plus
 } from 'lucide-react';
+
+const SUBJECTS_OPTIONS = [
+  "Informations avant le départ",
+  "Informations nationales",
+  "Informations provinciales / territoriales",
+  "Informations communautaires / municipales",
+  "Emploi, Éducation et Finances",
+  "Santé et bien-être",
+  "Communautés francophones et opportunités",
+  "Équité",
+  "Peuples autochtones"
+];
+
+const TARGET_CLIENT_TYPES_OPTIONS = [
+  "Général - pas de groupe de clients spécifique",
+  "Clients formés à l'étranger dans une profession ou métier réglementé",
+  "Enfants (0-14 ans)",
+  "Familles/parents/soignants",
+  "Femmes",
+  "Jeunes (15-30 ans)",
+  "Minorités de langue officielle (Francophones)",
+  "Nouveaux arrivants racisés",
+  "Personnes handicapées",
+  "Personnes âgées (65+)",
+  "Réfugiés",
+  "2ELGBTQI+ (Bispirituel; Lesbienne; Gai; Bisexuel; Transgenre; Queer; Intersexuel et autres)"
+];
 
 interface SessionModalProps {
   isOpen: boolean;
   onClose: () => void;
   session: Session | null; // null si création
   initialCategory?: SessionCategory;
+  initialDate?: string;
   clients: Client[];
   partners: Partner[];
   contracts: Contract[];
+  sessions: Session[];
   allProfiles: Profile[];
   activeRole: UserRole;
   currentUserName: string;
@@ -57,9 +88,11 @@ const SessionModal: React.FC<SessionModalProps> = ({
   onClose, 
   session, 
   initialCategory = SessionCategory.INDIVIDUAL,
+  initialDate,
   clients,
   partners,
   contracts,
+  sessions,
   allProfiles,
   activeRole,
   currentUserName,
@@ -77,10 +110,18 @@ const SessionModal: React.FC<SessionModalProps> = ({
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [clientSearchQuery, setClientSearchQuery] = useState('');
   const [attendance, setAttendance] = useState<AttendanceStatus>(AttendanceStatus.PRESENT);
+  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
+  const [selectedTargetClientTypes, setSelectedTargetClientTypes] = useState<string[]>([]);
+  const [sessionType, setSessionType] = useState<SessionType>(session?.type || SessionType.ESTABLISHMENT);
+  const [programmingType, setProgrammingType] = useState<string>(session?.programmingType || 'Service standard');
+  const [clientLocationCountry, setClientLocationCountry] = useState<string>(session?.clientLocationCountry || '');
+
+  const wasOpen = useRef(false);
 
   // Initialisation à l'ouverture
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !wasOpen.current) {
+      wasOpen.current = true;
       if (session) {
         setCategory(session.category);
         setFormDate(session.date);
@@ -92,33 +133,44 @@ const SessionModal: React.FC<SessionModalProps> = ({
           const client = (clients || []).find(c => session.participantIds?.includes(c.id));
           setSelectedClient(client || null);
           setAttendance(session.individualStatus || AttendanceStatus.PRESENT);
+          setSelectedSubjects(session.subjectsCovered || []);
+          setSelectedTargetClientTypes(session.targetClientTypes || []);
+          setClientLocationCountry(session.clientLocationCountry || '');
+          setSessionType(session.type);
+          setProgrammingType(session.programmingType || 'Service standard');
         }
       } else {
         setCategory(initialCategory);
-        setFormDate(new Date().toISOString().split('T')[0]);
+        setFormDate(initialDate || new Date().toISOString().split('T')[0]);
         setFormFacilitatorType(FacilitatorType.CONSULTANT);
         setSelectedConsultantName('');
         setSelectedContractId('');
         setModalParticipantIds([]);
         setSelectedClient(null);
         setAttendance(AttendanceStatus.PRESENT);
+        setSelectedSubjects([]);
+        setSelectedTargetClientTypes([]);
+        setSessionType(SessionType.ESTABLISHMENT);
+        setProgrammingType('Service standard');
       }
+    } else if (!isOpen) {
+      wasOpen.current = false;
     }
-  }, [isOpen, session, initialCategory, clients]);
+  }, [isOpen, session, initialCategory, initialDate]); // On retire clients des dépendances pour éviter les resets intempestifs
 
   const isGroup = category === SessionCategory.GROUP;
 
   const availableFacilitators = useMemo(() => {
     if (formFacilitatorType === FacilitatorType.CONSULTANT) {
-      return partners.filter(p => p.type === PartnerType.CONSULTANT);
+      return (partners || []).filter(p => p.type === PartnerType.CONSULTANT);
     } else {
-      return partners.filter(p => p.type === PartnerType.INTERNAL || p.type === PartnerType.EXTERNAL);
+      return (partners || []).filter(p => p.type === PartnerType.INTERNAL || p.type === PartnerType.EXTERNAL);
     }
   }, [partners, formFacilitatorType]);
 
   const activeContractsForConsultant = useMemo(() => {
     if (!selectedConsultantName || formFacilitatorType !== FacilitatorType.CONSULTANT) return [];
-    return contracts.filter(c => c.consultantName === selectedConsultantName && c.status === 'ACTIVE');
+    return (contracts || []).filter(c => c.consultantName === selectedConsultantName && c.status === 'ACTIVE');
   }, [contracts, selectedConsultantName, formFacilitatorType]);
 
   const validationError = useMemo(() => {
@@ -126,8 +178,9 @@ const SessionModal: React.FC<SessionModalProps> = ({
     const contract = activeContractsForConsultant.find(c => c.id === selectedContractId);
     if (!contract) return null;
 
-    if (contract.usedSessions >= contract.totalSessions) {
-      return `Attention : Le quota de ce contrat est atteint (${contract.usedSessions}/${contract.totalSessions}).`;
+    const actualUsedSessions = (sessions || []).filter(s => s.contractId === contract.id && s.id !== session?.id).length;
+    if (actualUsedSessions >= contract.totalSessions) {
+      return `Attention : Le quota de ce contrat est atteint (${actualUsedSessions}/${contract.totalSessions}).`;
     }
 
     if (formDate && (formDate < contract.startDate || formDate > contract.endDate)) {
@@ -155,6 +208,24 @@ const SessionModal: React.FC<SessionModalProps> = ({
       return;
     }
 
+    const type = formData.get('type') as SessionType;
+
+    // Validation IRCC (Etablissement Individuel)
+    if (category === SessionCategory.INDIVIDUAL && type === SessionType.ESTABLISHMENT) {
+      if (selectedSubjects.length === 0) {
+        alert("Veuillez sélectionner au moins un sujet abordé.");
+        return;
+      }
+      if (selectedTargetClientTypes.length > 3) {
+        alert("Vous ne pouvez pas sélectionner plus de 3 types de clients spécifiques.");
+        return;
+      }
+      if (selectedTargetClientTypes.length === 0) {
+        alert("Veuillez sélectionner au moins un type de client spécifique.");
+        return;
+      }
+    }
+
     // Validation : Pas de séances individuelles dans le futur pour les conseillers
     const sessionDate = formData.get('date') as string;
     const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
@@ -174,14 +245,14 @@ const SessionModal: React.FC<SessionModalProps> = ({
     const sessionData: Session = {
       id: session?.id || Date.now().toString(),
       title,
-      type: formData.get('type') as SessionType,
+      type,
       category,
       date: formData.get('date') as string,
       startTime: formData.get('startTime') as string,
       duration: parseInt(formData.get('duration') as string),
       participantIds: isGroup ? modalParticipantIds : (selectedClient ? [selectedClient.id] : (session?.participantIds || [])),
       noShowIds: !isGroup && selectedClient && attendance === AttendanceStatus.ABSENT ? [selectedClient.id] : (session?.noShowIds || []),
-      location: formData.get('location') as string || 'CFGT',
+      location: isGroup ? (formData.get('location') as string || 'CFGT') : 'À distance',
       notes: formData.get('notes') as string || '',
       discussedNeeds: formData.get('discussedNeeds') as string || '',
       actions: formData.get('actions') as string || '',
@@ -192,11 +263,20 @@ const SessionModal: React.FC<SessionModalProps> = ({
       contractId: contractId || undefined,
       individualStatus: isGroup ? undefined : attendance,
       needsInterpretation: formData.get('needsInterpretation') === 'true',
-      zoomLink: formData.get('zoomLink') as string || '',
-      zoomId: formData.get('zoomId') as string || '',
+      zoomLink: isGroup ? (formData.get('zoomLink') as string || '') : '',
+      zoomId: isGroup ? (formData.get('zoomId') as string || '') : '',
       invoiceReceived: session?.invoiceReceived || false, 
       invoiceSubmitted: session?.invoiceSubmitted || false, 
       invoicePaid: session?.invoicePaid || false,
+      subjectsCovered: selectedSubjects,
+      targetClientTypes: selectedTargetClientTypes,
+      clientLocationCountry,
+      activityFormat: session?.activityFormat || 'À distance (en ligne/numérique) — dirigé par le personnel',
+      languageUsed: session?.languageUsed || 'Français',
+      serviceSetting: session?.serviceSetting || 'Informations et Orientation Individuelles/Familiales',
+      providerLocation: session?.providerLocation || 'Canada',
+      supportServices: session?.supportServices || 'Aucun service de soutien reçu',
+      programmingType: programmingType
     };
 
     onSave(sessionData);
@@ -313,7 +393,13 @@ const SessionModal: React.FC<SessionModalProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Type de service</label>
-                  <select name="type" required defaultValue={session?.type} className="slds-input">
+                  <select 
+                    name="type" 
+                    required 
+                    value={sessionType} 
+                    onChange={(e) => setSessionType(e.target.value as SessionType)}
+                    className="slds-input"
+                  >
                     {Object.values(SessionType).map(t => <option key={t} value={t}>{SESSION_TYPE_LABELS[t]}</option>)}
                   </select>
                 </div>
@@ -326,25 +412,50 @@ const SessionModal: React.FC<SessionModalProps> = ({
                   <input type="time" name="startTime" defaultValue={session?.startTime || "09:00"} required className="slds-input" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Durée (minutes)</label>
-                  <input type="number" name="duration" defaultValue={session?.duration || "60"} required className="slds-input" />
+                  <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Durée de l'activité (heures)</label>
+                  <select 
+                    name="duration" 
+                    defaultValue={session?.duration?.toString() || "60"} 
+                    required 
+                    className="slds-input"
+                  >
+                    <option value="30">0,5</option>
+                    <option value="60">1,0</option>
+                    <option value="90">1,5</option>
+                    <option value="120">2,0</option>
+                    <option value="150">2,5</option>
+                    <option value="180">3,0</option>
+                    <option value="210">3,5</option>
+                    <option value="240">4,0</option>
+                  </select>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-1">
-                    <MapPin size={12} className="text-slate-400" /> Lieu
-                  </label>
-                  <input type="text" name="location" defaultValue={session?.location} placeholder="CFGT ou Virtuel..." className="slds-input" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-1">
-                    <Video size={12} className="text-slds-brand" /> Lien Visioconférence
-                  </label>
-                  <input type="text" name="zoomLink" defaultValue={session?.zoomLink} placeholder="Lien Zoom/Teams..." className="slds-input text-slds-brand" />
-                </div>
-              </div>
+              {isGroup && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-1">
+                        <MapPin size={12} className="text-slate-400" /> Lieu
+                      </label>
+                      <input type="text" name="location" defaultValue={session?.location} placeholder="CFGT ou Virtuel..." className="slds-input" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-1">
+                        <Hash size={12} className="text-slds-brand" /> ID de réunion (Zoom/Teams) <span className="text-slds-error ml-1">*</span>
+                      </label>
+                      <input type="text" name="zoomId" defaultValue={session?.zoomId} required placeholder="Meeting ID..." className="slds-input text-slds-brand" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-1">
+                      <Video size={12} className="text-slds-brand" /> Lien Visioconférence <span className="text-slds-error ml-1">*</span>
+                    </label>
+                    <input type="text" name="zoomLink" defaultValue={session?.zoomLink} required placeholder="Lien Zoom/Teams..." className="slds-input text-slds-brand" />
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Intervenant et Contrat (Collectif) */}
@@ -398,11 +509,14 @@ const SessionModal: React.FC<SessionModalProps> = ({
                       className={`slds-input bg-white ${validationError ? 'border-amber-400 ring-2 ring-amber-50' : ''}`}
                      >
                        <option value="">Choisir un contrat actif...</option>
-                       {activeContractsForConsultant.map(c => (
-                         <option key={c.id} value={c.id}>
-                           Contrat {c.id.split('-')[1]} - {c.serviceType} ({c.usedSessions}/{c.totalSessions})
-                         </option>
-                       ))}
+                       {activeContractsForConsultant.map(c => {
+                          const actualUsed = (sessions || []).filter(s => s.contractId === c.id && s.id !== session?.id).length;
+                          return (
+                            <option key={c.id} value={c.id}>
+                              Contrat {c.id.split('-')[1]} - {c.serviceType} ({actualUsed}/{c.totalSessions})
+                            </option>
+                          );
+                        })}
                      </select>
                      {validationError && (
                        <div className="mt-2 flex items-start gap-2 p-2 bg-amber-50 border border-amber-200 rounded text-[10px] font-bold text-amber-700">
@@ -472,6 +586,121 @@ const SessionModal: React.FC<SessionModalProps> = ({
                     placeholder="Prochaines étapes, rendez-vous, orientatons..."
                     className="slds-input h-20 resize-none text-xs"
                   />
+                </div>
+              </div>
+            )}
+
+            {/* Reporting IRCC (Uniquement Etablissement Individuel) */}
+            {!isGroup && sessionType === SessionType.ESTABLISHMENT && (
+              <div className="pt-4 border-t border-slds-border space-y-6">
+                <p className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-2">
+                   <Activity size={14} className="text-slds-brand" /> Données de Reporting IRCC
+                </p>
+
+                {/* Emplacement du client : Pays */}
+                <div className="space-y-1">
+                  {selectedClient?.residenceCountry && (
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-500 font-semibold">
+                      <span className="font-black text-slate-400 uppercase tracking-widest">Pays de résidence du client :</span>
+                      <span className="text-slate-700 font-bold">{selectedClient.residenceCountry}</span>
+                    </div>
+                  )}
+                  <label className="text-[10px] font-bold text-slds-text-secondary uppercase">
+                    Emplacement du client : Pays <span className="text-slds-error">*</span>
+                  </label>
+                  <select 
+                    name="clientLocationCountry" 
+                    value={clientLocationCountry}
+                    onChange={(e) => setClientLocationCountry(e.target.value)}
+                    required 
+                    className="slds-input text-slds-brand"
+                  >
+                    <option value="">Sélectionner un pays...</option>
+                    {IRCC_COUNTRIES.map(country => (
+                      <option key={country} value={country}>{country}</option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-slds-text-secondary italic">
+                    Ce champ est utilisé pour la Colonne 14 du rapport IRCC.
+                  </p>
+                </div>
+
+                {/* Sujets Abordés */}
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-bold text-slds-text-secondary uppercase">
+                      Sujet(s) abordés <span className="text-slds-error">*</span>
+                    </label>
+                    <span className="text-[8px] font-bold text-slds-text-secondary">MIN 1</span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 p-3 bg-slds-bg rounded border border-slds-border">
+                    {SUBJECTS_OPTIONS.map(option => (
+                      <label key={option} className="flex items-start gap-3 cursor-pointer group">
+                        <input 
+                          type="checkbox"
+                          checked={selectedSubjects.includes(option)}
+                          onChange={(e) => {
+                            if (e.target.checked) setSelectedSubjects([...selectedSubjects, option]);
+                            else setSelectedSubjects(selectedSubjects.filter(s => s !== option));
+                          }}
+                          className="mt-1"
+                        />
+                        <span className="text-[10px] text-slds-text-primary group-hover:text-slds-brand transition-colors">{option}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Type de client spécifique */}
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-bold text-slds-text-secondary uppercase">
+                      Type de client spécifique <span className="text-slds-error">*</span>
+                    </label>
+                    <span className={`text-[8px] font-bold ${selectedTargetClientTypes.length > 3 ? 'text-slds-error' : 'text-slds-text-secondary'}`}>
+                      {selectedTargetClientTypes.length}/3
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 p-3 bg-slds-bg rounded border border-slds-border">
+                    {TARGET_CLIENT_TYPES_OPTIONS.map(option => (
+                      <label key={option} className="flex items-start gap-3 cursor-pointer group">
+                        <input 
+                          type="checkbox"
+                          checked={selectedTargetClientTypes.includes(option)}
+                          onChange={(e) => {
+                            if (e.target.checked) setSelectedTargetClientTypes([...selectedTargetClientTypes, option]);
+                            else setSelectedTargetClientTypes(selectedTargetClientTypes.filter(s => s !== option));
+                          }}
+                          className="mt-1"
+                        />
+                        <span className="text-[10px] text-slds-text-primary group-hover:text-slds-brand transition-colors">{option}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Type de programmation / d'initiative */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Type de programmation / d'initiative</label>
+                  <input 
+                    type="text" 
+                    value={programmingType} 
+                    onChange={(e) => setProgrammingType(e.target.value)}
+                    placeholder="Ex: Service standard..."
+                    className="slds-input"
+                  />
+                </div>
+
+                {/* Rappel des valeurs automatiques (Lecture seule) */}
+                <div className="grid grid-cols-2 gap-3 p-3 bg-amber-50/50 border border-amber-100 rounded">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-amber-800 uppercase">Code Postal Organisation</label>
+                    <p className="text-xs font-bold text-amber-900">L5B3C4</p>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-amber-800 uppercase">Pays Organisation</label>
+                    <p className="text-xs font-bold text-amber-900">—</p>
+                  </div>
                 </div>
               </div>
             )}

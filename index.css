@@ -64,3 +64,62 @@ body {
 .slds-table td {
   @apply p-4 border-b border-slate-50;
 }
+
+/* Sophisticated Loading Styles */
+.loading-container {
+  @apply flex flex-col items-center justify-center w-full h-[calc(100vh-200px)] min-h-[400px];
+}
+
+@keyframes popIn {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.logo-progress-wrapper {
+  @apply relative w-24 h-24 mb-6;
+  animation: popIn 0.4s cubic-bezier(0.17, 0.67, 0.83, 0.67) forwards;
+}
+
+.logo-base, .logo-fill {
+  @apply absolute inset-0 bg-no-repeat bg-contain bg-center;
+  mask-image: url('/favicon.png');
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-image: url('/favicon.png');
+  -webkit-mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+}
+
+.logo-base {
+  @apply bg-slate-300 opacity-40;
+}
+
+.logo-fill {
+  @apply bg-slate-900 transition-all duration-700 ease-out;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+}
+
+.progress-text-container {
+  @apply text-center mt-2;
+}
+
+.progress-percentage {
+  @apply text-4xl font-black text-slds-brand mb-1 tabular-nums;
+  font-family: var(--font-sans);
+}
+
+.progress-label {
+  @apply text-[10px] font-bold text-slate-400 uppercase tracking-[0.4em] animate-pulse;
+}
+
+@keyframes glow {
+  0%, 100% { filter: drop-shadow(0 0 5px rgba(0, 0, 0, 0.1)); }
+  50% { filter: drop-shadow(0 0 15px rgba(0, 0, 0, 0.2)); }
+}
+
+.animate-glow {
+  animation: glow 2s infinite;
+}
+

@@ -317,7 +317,16 @@ export const apiService = {
       contract_id: s.contractId,
       individual_status: s.individualStatus,
       needs_interpretation: s.needsInterpretation,
-      created_by_id: s.created_by_id,
+      subjects_covered: s.subjectsCovered,
+      target_client_types: s.targetClientTypes,
+      activity_format: s.activityFormat,
+      language_used: s.languageUsed,
+      service_setting: s.serviceSetting,
+      provider_location: s.providerLocation,
+      support_services: s.supportServices,
+      programming_type: s.programmingType,
+      client_location_country: s.clientLocationCountry,
+      advisor_id: s.advisorId || s.created_by_id, // Map advisorId to the database column advisor_id
       created_at: s.created_at || new Date().toISOString()
     }));
 

@@ -61,6 +61,7 @@ const App: React.FC = () => {
   const [tasks, setTasks] = useState<WorkflowTask[]>([]);
   
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -305,42 +306,21 @@ const App: React.FC = () => {
   const fetchData = async () => {
     setIsLoading(true);
     setError(null);
+    setLoadingProgress(0);
     try {
-      const [
-        resMentors,
-        resContracts,
-        resProfiles,
-        resPartners,
-        resClients,
-        resSessions,
-        resLogs,
-        resTasks
-      ] = await Promise.allSettled([
-        apiService.fetchTable('mentors'),
-        apiService.fetchTable('contracts'),
-        apiService.fetchTable('profiles'),
-        apiService.fetchTable('partners'),
-        apiService.fetchTable('clients'),
-        apiService.fetchTable('sessions'),
-        apiService.fetchTable('activity_logs'),
-        apiService.fetchTable('workflow_tasks')
-      ]);
+      const tables = [
+        { name: 'mentors', setter: setMentors },
+        { name: 'contracts', setter: setContracts },
+        { name: 'profiles', setter: setProfiles },
+        { name: 'partners', setter: setPartners },
+        { name: 'clients', setter: setClients },
+        { name: 'sessions', setter: setSessions },
+        { name: 'activity_logs', setter: setActivityLogs },
+        { name: 'workflow_tasks', setter: setTasks }
+      ];
 
-      const safeGet = (result: PromiseSettledResult<any>, name: string) => {
-        if (result.status === 'fulfilled') return result.value || [];
-        console.warn(`[fetchData] Failed to fetch '${name}':`, result.reason?.message);
-        return [];
-      };
-
-      const mentorsData   = safeGet(resMentors,   'mentors');
-      const contractsData = safeGet(resContracts, 'contracts');
-      const profilesData  = safeGet(resProfiles,  'profiles');
-      const partnersData  = safeGet(resPartners,  'partners');
-      const clientsData   = safeGet(resClients,   'clients');
-      const sessionsData  = safeGet(resSessions,  'sessions');
-      const logsData      = safeGet(resLogs,      'activity_logs');
-      const tasksData     = safeGet(resTasks,     'workflow_tasks');
-
+      let completed = 0;
+      
       const normalizePartnerType = (raw: string): PartnerType => {
         const val = (raw || '').toUpperCase().trim();
         if (val === 'CONSULTANT') return PartnerType.CONSULTANT;
@@ -349,50 +329,44 @@ const App: React.FC = () => {
         return PartnerType.EXTERNAL;
       };
 
-      const mappedPartners = partnersData.map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        city: p.city,
-        province: p.province,
-        specialties: p.specialties || [],
-        type: normalizePartnerType(p.type)
+      await Promise.allSettled(tables.map(async (table) => {
+        try {
+          const data = await apiService.fetchTable(table.name as any);
+          if (Array.isArray(data)) {
+            // Internal mapping based on table name
+            if (table.name === 'partners') {
+              table.setter(data.map((p: any) => ({
+                id: p.id, name: p.name, city: p.city, province: p.province,
+                specialties: p.specialties || [], type: normalizePartnerType(p.type)
+              })));
+            } else if (table.name === 'mentors') {
+              table.setter(data.map((m: any) => ({
+                id: m.id, firstName: m.firstName, lastName: m.lastName, profession: m.profession,
+                city: m.city, domain: m.domain, originCountry: m.originCountry, organizationId: m.organizationId
+              })));
+            } else if (table.name === 'contracts') {
+              table.setter(data.map((con: any) => ({
+                id: con.id, consultantName: con.consultantName, totalSessions: con.totalSessions || 0,
+                usedSessions: con.usedSessions || 0, startDate: con.startDate, endDate: con.endDate,
+                status: con.status as any, amount: con.amount || 0
+              })));
+            } else if (table.name === 'clients') {
+              table.setter(data.map((c: any) => ({
+                ...c, chosenCity: c.chosenCity || c.chosenProvince,
+                residenceCountry: c.residenceCountry || c.birthCountry,
+                currentJob: c.currentJob || c.currentProfessionGroup
+              })));
+            } else {
+              table.setter(data);
+            }
+          }
+        } catch (e) {
+          console.warn(`[fetchData] Failed to fetch '${table.name}'`, e);
+        } finally {
+          completed++;
+          setLoadingProgress(Math.round((completed / tables.length) * 100));
+        }
       }));
-      setPartners(mappedPartners);
-
-      setMentors(mentorsData.map((m: any) => ({
-        id: m.id,
-        firstName: m.firstName,
-        lastName: m.lastName,
-        profession: m.profession,
-        city: m.city,
-        domain: m.domain,
-        originCountry: m.originCountry,
-        organizationId: m.organizationId
-      })));
-
-      setContracts(contractsData.map((con: any) => ({
-        id: con.id,
-        consultantName: con.consultantName,
-        totalSessions: con.totalSessions || 0,
-        usedSessions: con.usedSessions || 0,
-        startDate: con.startDate,
-        endDate: con.endDate,
-        status: con.status as any,
-        amount: con.amount || 0
-      })));
-
-      if (Array.isArray(clientsData)) {
-        setClients(clientsData.map((c: any) => ({
-          ...c,
-          chosenCity: c.chosenCity || c.chosenProvince,
-          residenceCountry: c.residenceCountry || c.birthCountry,
-          currentJob: c.currentJob || c.currentProfessionGroup
-        })));
-      }
-      if (Array.isArray(sessionsData)) setSessions(sessionsData);
-      if (Array.isArray(logsData)) setActivityLogs(logsData);
-      if (Array.isArray(profilesData)) setProfiles(profilesData);
-      if (Array.isArray(tasksData)) setTasks(tasksData);
 
     } catch (err: any) {
       console.error("Erreur sync:", err);
@@ -508,7 +482,16 @@ const App: React.FC = () => {
         zoom_link: newSession.zoomLink,
         zoom_id: newSession.zoomId,
         needs_interpretation: newSession.needsInterpretation,
-        notes: newSession.notes
+        notes: newSession.notes,
+        subjects_covered: newSession.subjectsCovered,
+        target_client_types: newSession.targetClientTypes,
+        activity_format: newSession.activityFormat,
+        language_used: newSession.languageUsed,
+        service_setting: newSession.serviceSetting,
+        provider_location: newSession.providerLocation,
+        support_services: newSession.supportServices,
+        programming_type: newSession.programmingType,
+        client_location_country: newSession.clientLocationCountry
       });
       await logActivity('CREATE', 'SESSION', `Nouvelle séance programmée : ${newSession.title}`);
       addNotification(NotificationType.SUCCESS, "Séance enregistrée", `La séance "${newSession.title}" est ajoutée au calendrier.`);
@@ -542,7 +525,20 @@ const App: React.FC = () => {
         actions: session.actions,
         notes: session.notes,
         individual_status: session.individualStatus,
-        advisor_id: session.advisorId
+        advisor_id: session.advisorId,
+        contract_id: session.contractId,
+        facilitator_name: session.facilitatorName,
+        facilitator_type: session.facilitatorType,
+        advisor_name: session.advisorName,
+        subjects_covered: session.subjectsCovered,
+        target_client_types: session.targetClientTypes,
+        activity_format: session.activityFormat,
+        language_used: session.languageUsed,
+        service_setting: session.serviceSetting,
+        provider_location: session.providerLocation,
+        support_services: session.supportServices,
+        programming_type: session.programmingType,
+        client_location_country: session.clientLocationCountry
       });
       
       await logActivity('UPDATE', 'SESSION', `Modification de la séance : ${session.title}`, delta, session.id);
@@ -601,11 +597,18 @@ const App: React.FC = () => {
   const renderContent = () => {
     if (isLoading && isLoggedIn && clients.length === 0) {
       return (
-        <div className="h-full flex flex-col items-center justify-center py-40">
-           <div className="loading-screen relative !bg-transparent">
-              <img src="/favicon.png" alt="Arrivio" className="loading-logo" />
-              <div className="loading-text">Chargement de vos données</div>
-           </div>
+        <div className="loading-container">
+          <div className="logo-progress-wrapper animate-glow">
+            <div className="logo-base" />
+            <div 
+              className="logo-fill" 
+              style={{ clipPath: `inset(0 ${100 - loadingProgress}% 0 0)` }} 
+            />
+          </div>
+          <div className="progress-text-container">
+            <div className="progress-percentage">{loadingProgress}%</div>
+            <div className="progress-label">Synchronisation</div>
+          </div>
         </div>
       );
     }
