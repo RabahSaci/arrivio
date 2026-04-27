@@ -13,8 +13,18 @@ import {
   UserRole,
   Profile
 } from '../types';
-import { SESSION_TYPE_LABELS, IRCC_COUNTRIES } from '../constants';
+import { 
+  SESSION_TYPE_LABELS, 
+  IRCC_COUNTRIES,
+  EMPLOYMENT_STATUS_CANADA,
+  EMPLOYMENT_STATUS_OUTSIDE,
+  EMPLOYMENT_TARGET_TYPES,
+  EMPLOYMENT_SECTORS,
+  EMPLOYMENT_TOPICS,
+  EMPLOYMENT_REFERRALS
+} from '../constants';
 import ParticipantManager from './ParticipantManager';
+import { apiService } from '../services/apiService';
 import { 
   X, 
   User, 
@@ -35,8 +45,11 @@ import {
   Hash,
   UserCheck,
   UserX,
-  Plus
+  Plus,
+  Loader2,
+  Briefcase
 } from 'lucide-react';
+import { CNP_CODES } from '../constants/cnp_codes';
 
 const SUBJECTS_OPTIONS = [
   "Informations avant le départ",
@@ -63,6 +76,33 @@ const TARGET_CLIENT_TYPES_OPTIONS = [
   "Personnes âgées (65+)",
   "Réfugiés",
   "2ELGBTQI+ (Bispirituel; Lesbienne; Gai; Bisexuel; Transgenre; Queer; Intersexuel et autres)"
+];
+
+const FUNDED_REFERRAL_OPTIONS = [
+  "Service financé par IRCC",
+  "Service non financé par IRCC",
+  "Les deux (Services financés et non financés par IRCC)"
+];
+
+const REFERRAL_FUNDED_PAIRS: Array<[keyof Session, keyof Session]> = [
+  ['lifeNeedsBasicReferralInd', 'lifeNeedsBasicFundedReferralId'],
+  ['lifeNeedsFamilyChildrenReferralInd', 'lifeNeedsFamilyChildrenFundedReferralId'],
+  ['lifeNeedsHealthAndMentalReferralInd', 'lifeNeedsHealthAndMentalFundedReferralId'],
+  ['lifeNeedsHousingReferralInd', 'lifeNeedsHousingFundedReferralId'],
+  ['lifeNeedsGovernmentKnowledgeNoReferralInd', 'lifeNeedsGovernmentKnowledgeFundedReferralId'],
+  ['lifeNeedsCanadaKnowledgeReferralInd', 'lifeNeedsCanadaKnowledgeFundedReferralId'],
+  ['lifeNeedsLegalReferralInd', 'lifeNeedsLegalFundedReferralId'],
+  ['lifeNeedsFinancialReferralInd', 'lifeNeedsFinancialFundedReferralId'],
+  ['lifeNeedsCommunityKnowledgeReferralInd', 'lifeNeedsCommunityKnowledgeFundedReferralId'],
+  ['lifeNeedsSocialNetworkingReferralInd', 'lifeNeedsSocialNetworkingFundedReferralId'],
+  ['lifeNeedsRacismReferralInd', 'lifeNeedsRacismFundedReferralId'],
+  ['languageNeedsOfficialReferralInd', 'languageNeedsOfficialFundedReferralId'],
+  ['languageNeedsLiteracyReferralInd', 'languageNeedsLiteracyFundedReferralId'],
+  ['languageNeedsEmploymentReferralInd', 'languageNeedsEmploymentFundedReferralId'],
+  ['employmentLabourMarketReferralInd', 'employmentLabourMarketFundedReferralId'],
+  ['employmentFindingEmploymentReferralInd', 'employmentFindingEmploymentFundedReferralId'],
+  ['employmentCredentialsReferralInd', 'employmentCredentialsFundedReferralId'],
+  ['employmentEducationReferralInd', 'employmentEducationFundedReferralId'],
 ];
 
 interface SessionModalProps {
@@ -115,6 +155,14 @@ const SessionModal: React.FC<SessionModalProps> = ({
   const [sessionType, setSessionType] = useState<SessionType>(session?.type || SessionType.ESTABLISHMENT);
   const [programmingType, setProgrammingType] = useState<string>(session?.programmingType || 'Service standard');
   const [clientLocationCountry, setClientLocationCountry] = useState<string>(session?.clientLocationCountry || '');
+  const [naarsData, setNaarsData] = useState<Partial<Session>>(() => session ? session : { formalFollowUpInd: false, lifeNeedsInd: true });
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [showNAARS, setShowNAARS] = useState<boolean>(false);
+  const [showEmployment, setShowEmployment] = useState<boolean>(false);
+  const [isHydrating, setIsHydrating] = useState<boolean>(false);
+  const [formDiscussedNeeds, setFormDiscussedNeeds] = useState<string>('');
+  const [formActions, setFormActions] = useState<string>('');
+  const [formNotes, setFormNotes] = useState<string>('');
 
   const wasOpen = useRef(false);
 
@@ -138,6 +186,40 @@ const SessionModal: React.FC<SessionModalProps> = ({
           setClientLocationCountry(session.clientLocationCountry || '');
           setSessionType(session.type);
           setProgrammingType(session.programmingType || 'Service standard');
+          if (session.type === SessionType.EMPLOYMENT) {
+            setShowEmployment(true);
+          }
+          
+          // Hydrate full NAARS data on demand
+          setIsHydrating(true);
+          // Pre-fill activity fields from already-loaded session data
+          setFormDiscussedNeeds(session.discussedNeeds || '');
+          setFormActions(session.actions || '');
+          setFormNotes(session.notes || '');
+          apiService.getById('sessions', session.id)
+            .then(fullSession => {
+              setNaarsData(fullSession);
+              // Update activity fields with fully loaded data
+              setFormDiscussedNeeds(fullSession.discussedNeeds || '');
+              setFormActions(fullSession.actions || '');
+              setFormNotes(fullSession.notes || '');
+              setSelectedSubjects(fullSession.subjectsCovered || []);
+              setSelectedTargetClientTypes(fullSession.targetClientTypes || []);
+              setClientLocationCountry(fullSession.clientLocationCountry || '');
+              setProgrammingType(fullSession.programmingType || 'Service standard');
+              // Activer les modules si des données sont déjà présentes
+              if (fullSession.lifeNeedsInd || fullSession.languageNeedsInd || fullSession.employmentNeedsInd || fullSession.lifeAssetInd) {
+                setShowNAARS(true);
+              }
+              if (fullSession.employmentStatusCanada || fullSession.intendedOccupationCnp || fullSession.employmentTopicCareerPlanningInd) {
+                setShowEmployment(true);
+              }
+            })
+            .catch(err => console.error("Error hydrating session:", err))
+            .finally(() => setIsHydrating(false));
+            
+        } else {
+          setNaarsData(session || {});
         }
       } else {
         setCategory(initialCategory);
@@ -152,9 +234,17 @@ const SessionModal: React.FC<SessionModalProps> = ({
         setSelectedTargetClientTypes([]);
         setSessionType(SessionType.ESTABLISHMENT);
         setProgrammingType('Service standard');
+        setFormDiscussedNeeds('');
+        setFormActions('');
+        setFormNotes('');
+        setNaarsData({
+          formalFollowUpInd: false,
+          lifeNeedsInd: true,
+        });
       }
     } else if (!isOpen) {
       wasOpen.current = false;
+      setIsHydrating(false);
     }
   }, [isOpen, session, initialCategory, initialDate]); // On retire clients des dépendances pour éviter les resets intempestifs
 
@@ -224,6 +314,39 @@ const SessionModal: React.FC<SessionModalProps> = ({
         alert("Veuillez sélectionner au moins un type de client spécifique.");
         return;
       }
+      
+      // Validation SÉBAA if active
+      if (showNAARS) {
+        if (!(naarsData as any).languageOfService) {
+          alert("Veuillez sélectionner la langue officielle de préférence du client dans le module SÉBAA.");
+          return;
+        }
+        if (!naarsData.formatInPersonInd && !naarsData.formatRemoteStaffInd && !naarsData.formatRemoteSelfInd && !naarsData.formatRemoteEmailTextPhoneInd) {
+          alert("Veuillez sélectionner au moins un format de l'évaluation dans le module SÉBAA.");
+          return;
+        }
+      }
+      
+      // Validation Emploi (SLE) if active
+      if (showEmployment) {
+        if (!(naarsData as any).employmentStatusCanada) {
+          alert("Veuillez sélectionner le statut professionnel (Canada) dans le module Emploi.");
+          return;
+        }
+        if (!(naarsData as any).intendedOccupationCnp) {
+          alert("Veuillez sélectionner la profession prévue (CNP) dans le module Emploi.");
+          return;
+        }
+        if (!clientLocationCountry) {
+          alert("Veuillez sélectionner l'emplacement du client (Pays) dans le module Emploi.");
+          return;
+        }
+        // Format is shared with SEBAA fields or needs its own check if user wants
+        if (!naarsData.formatInPersonInd && !naarsData.formatRemoteStaffInd && !naarsData.formatRemoteSelfInd && !naarsData.formatRemoteEmailTextPhoneInd) {
+          alert("Veuillez sélectionner au moins un format de l'activité dans le module Emploi.");
+          return;
+        }
+      }
     }
 
     // Validation : Pas de séances individuelles dans le futur pour les conseillers
@@ -243,6 +366,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
       : (selectedClient ? `${selectedClient.firstName} ${selectedClient.lastName}` : (session?.title || 'Client Inconnu'));
 
     const sessionData: Session = {
+      ...naarsData, // Start with existing data (NAARS indicators etc.)
       id: session?.id || Date.now().toString(),
       title,
       type,
@@ -252,10 +376,10 @@ const SessionModal: React.FC<SessionModalProps> = ({
       duration: parseInt(formData.get('duration') as string),
       participantIds: isGroup ? modalParticipantIds : (selectedClient ? [selectedClient.id] : (session?.participantIds || [])),
       noShowIds: !isGroup && selectedClient && attendance === AttendanceStatus.ABSENT ? [selectedClient.id] : (session?.noShowIds || []),
-      location: isGroup ? (formData.get('location') as string || 'CFGT') : 'À distance',
+      location: isGroup ? 'À distance' : 'À distance',
       notes: formData.get('notes') as string || '',
-      discussedNeeds: formData.get('discussedNeeds') as string || '',
-      actions: formData.get('actions') as string || '',
+      discussedNeeds: formDiscussedNeeds,
+      actions: formActions,
       facilitatorName,
       facilitatorType: isGroup ? (formData.get('facilitatorType') as FacilitatorType) : FacilitatorType.ORGANIZATION,
       advisorName: session?.advisorName || currentUserName,
@@ -276,11 +400,69 @@ const SessionModal: React.FC<SessionModalProps> = ({
       serviceSetting: session?.serviceSetting || 'Informations et Orientation Individuelles/Familiales',
       providerLocation: session?.providerLocation || 'Canada',
       supportServices: session?.supportServices || 'Aucun service de soutien reçu',
-      programmingType: programmingType
+      programmingType: (session as any)?.programmingType || 'Service standard',
     };
+
+    // Sanitize: clear funded referral IDs where "Aiguillé" is not checked
+    for (const [refField, fundedField] of REFERRAL_FUNDED_PAIRS) {
+      if (!(sessionData as any)[refField]) {
+        (sessionData as any)[fundedField] = '';
+      }
+    }
 
     onSave(sessionData);
   };
+
+  const toggleNAARSField = (field: keyof Session) => {
+    setNaarsData(prev => {
+      const newValue = !prev[field];
+      const nextData = { ...prev, [field]: newValue };
+      
+      // Auto-fill logic: if checking "Aiguillé", set funded ID to "Oui"
+      if (newValue) {
+        const pair = REFERRAL_FUNDED_PAIRS.find(p => p[0] === field);
+        if (pair) {
+          (nextData as any)[pair[1]] = FUNDED_REFERRAL_OPTIONS[0]; // "Service financé par IRCC"
+        }
+      }
+      
+      return nextData;
+    });
+  };
+
+  const setNAARSValue = (field: keyof Session, value: any) => {
+    setNaarsData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const renderNAARSCheckbox = (label: string, field: keyof Session, indent = false, disabled = false) => (
+    <label className={`flex items-center gap-2 ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer group'} ${indent ? 'ml-6' : ''}`}>
+      <input 
+        type="checkbox" 
+        checked={!!naarsData[field]} 
+        onChange={() => !disabled && toggleNAARSField(field)} 
+        disabled={disabled}
+        className="rounded border-slds-border text-slds-brand focus:ring-slds-brand disabled:cursor-not-allowed"
+      />
+      <span className={`text-[11px] transition-colors ${disabled ? 'text-slate-300' : 'text-slds-text-primary group-hover:text-slds-brand'}`}>{label}</span>
+    </label>
+  );
+
+  const renderNAARSText = (label: string, field: keyof Session, disabled = false) => (
+    <div className={`space-y-1 ${disabled ? 'opacity-40' : ''}`}>
+      <label className="text-[10px] font-bold text-slds-text-secondary uppercase">{label}</label>
+      <select 
+        value={(naarsData[field] as string) || ''} 
+        onChange={(e) => !disabled && setNAARSValue(field, e.target.value)} 
+        disabled={disabled}
+        className="slds-input text-[11px] disabled:cursor-not-allowed disabled:bg-slate-50"
+      >
+        <option value="">Sélectionner...</option>
+        {FUNDED_REFERRAL_OPTIONS.map(opt => (
+          <option key={opt} value={opt}>{opt}</option>
+        ))}
+      </select>
+    </div>
+  );
 
   if (!isOpen) return null;
 
@@ -288,7 +470,13 @@ const SessionModal: React.FC<SessionModalProps> = ({
     <div className="fixed inset-0 bg-black/50 z-[300] flex items-center justify-center p-4">
       <div className="slds-card w-full max-w-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col h-[650px] max-h-[90vh]">
         {/* Header */}
-        <div className="p-4 border-b border-slds-border flex justify-between items-center bg-slds-bg shrink-0">
+        <div className="p-4 border-b border-slds-border flex justify-between items-center bg-slds-bg shrink-0 relative">
+          {isHydrating && (
+            <div className="absolute inset-0 bg-white/80 z-20 flex items-center justify-center gap-2 animate-pulse">
+              <Loader2 className="animate-spin text-slds-brand" size={16} />
+              <span className="text-xs font-medium text-slds-brand">Chargement des données SÉBAA...</span>
+            </div>
+          )}
           <div className="flex items-center gap-3">
             <div className={`p-2 rounded ${isGroup ? 'bg-indigo-500' : 'bg-slds-brand'} text-white shadow-sm`}>
               {isGroup ? <Users size={20} /> : <User size={20} />}
@@ -397,7 +585,15 @@ const SessionModal: React.FC<SessionModalProps> = ({
                     name="type" 
                     required 
                     value={sessionType} 
-                    onChange={(e) => setSessionType(e.target.value as SessionType)}
+                    onChange={(e) => {
+                      const newType = e.target.value as SessionType;
+                      setSessionType(newType);
+                      if (newType === SessionType.EMPLOYMENT) {
+                        setShowEmployment(true);
+                      }
+                      // Optionnel: On pourrait aussi désactiver SEBAA si ce n'est pas un service d'Établissement
+                      // if (newType !== SessionType.ESTABLISHMENT) setShowNAARS(false);
+                    }}
                     className="slds-input"
                   >
                     {Object.values(SessionType).map(t => <option key={t} value={t}>{SESSION_TYPE_LABELS[t]}</option>)}
@@ -433,19 +629,11 @@ const SessionModal: React.FC<SessionModalProps> = ({
 
               {isGroup && (
                 <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-1">
-                        <MapPin size={12} className="text-slate-400" /> Lieu
-                      </label>
-                      <input type="text" name="location" defaultValue={session?.location} placeholder="CFGT ou Virtuel..." className="slds-input" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-1">
-                        <Hash size={12} className="text-slds-brand" /> ID de réunion (Zoom/Teams) <span className="text-slds-error ml-1">*</span>
-                      </label>
-                      <input type="text" name="zoomId" defaultValue={session?.zoomId} required placeholder="Meeting ID..." className="slds-input text-slds-brand" />
-                    </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-1">
+                      <Hash size={12} className="text-slds-brand" /> ID de réunion (Zoom/Teams) <span className="text-slds-error ml-1">*</span>
+                    </label>
+                    <input type="text" name="zoomId" defaultValue={session?.zoomId} required placeholder="Meeting ID..." className="slds-input text-slds-brand" />
                   </div>
 
                   <div className="space-y-1">
@@ -569,8 +757,8 @@ const SessionModal: React.FC<SessionModalProps> = ({
                     <Target size={12} className="text-slds-brand" /> Besoins discutés
                   </label>
                   <textarea 
-                    name="discussedNeeds" 
-                    defaultValue={session?.discussedNeeds}
+                    value={formDiscussedNeeds}
+                    onChange={(e) => setFormDiscussedNeeds(e.target.value)}
                     placeholder="Synthèse des besoins exprimés par le client..."
                     className="slds-input h-20 resize-none text-xs"
                   />
@@ -581,8 +769,8 @@ const SessionModal: React.FC<SessionModalProps> = ({
                     <Activity size={12} className="text-slds-success" /> Actions planifiées
                   </label>
                   <textarea 
-                    name="actions" 
-                    defaultValue={session?.actions}
+                    value={formActions}
+                    onChange={(e) => setFormActions(e.target.value)}
                     placeholder="Prochaines étapes, rendez-vous, orientatons..."
                     className="slds-input h-20 resize-none text-xs"
                   />
@@ -594,7 +782,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
             {!isGroup && sessionType === SessionType.ESTABLISHMENT && (
               <div className="pt-4 border-t border-slds-border space-y-6">
                 <p className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-2">
-                   <Activity size={14} className="text-slds-brand" /> Données de Reporting IRCC
+                   <Activity size={14} className="text-slds-brand" /> Reporting IRCC (Orientation I&O)
                 </p>
 
                 {/* Emplacement du client : Pays */}
@@ -691,18 +879,515 @@ const SessionModal: React.FC<SessionModalProps> = ({
                   />
                 </div>
 
-                {/* Rappel des valeurs automatiques (Lecture seule) */}
-                <div className="grid grid-cols-2 gap-3 p-3 bg-amber-50/50 border border-amber-100 rounded">
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-bold text-amber-800 uppercase">Code Postal Organisation</label>
-                    <p className="text-xs font-bold text-amber-900">L5B3C4</p>
+
+                <div className="pt-6 border-t-2 border-dashed border-slds-border mt-6">
+                  <div className="flex items-center justify-between p-4 bg-sky-50 border border-sky-200 rounded-lg mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-sky-500 text-white rounded shadow-sm">
+                        <ClipboardList size={18} />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-sky-900 leading-tight">Module SÉBAA — Évaluation des Besoins et des Atouts</p>
+                        <p className="text-[10px] text-sky-700 font-medium">Conforme au gabarit IRCC VER 1335 — Orientation I&O individuelle</p>
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <span className="text-[10px] font-bold text-sky-800 uppercase tracking-tight">{showNAARS ? 'Module Actif' : 'Activer SÉBAA ?'}</span>
+                      <div
+                        className={`relative w-10 h-5 rounded-full transition-colors ${showNAARS ? 'bg-sky-600' : 'bg-slate-300'}`}
+                        onClick={() => setShowNAARS(!showNAARS)}
+                      >
+                        <div className={`absolute top-1 left-1 w-3 h-3 bg-white rounded-full transition-transform ${showNAARS ? 'translate-x-5' : ''}`} />
+                      </div>
+                    </label>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-bold text-amber-800 uppercase">Pays Organisation</label>
-                    <p className="text-xs font-bold text-amber-900">—</p>
-                  </div>
+
+                  {showNAARS && (
+                    <div className="space-y-3 animate-in slide-in-from-top-2 duration-300">
+
+                      {/* Infos admin */}
+                      <div className="grid grid-cols-2 gap-3 p-3 bg-white border border-sky-100 rounded">
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-sky-800 uppercase">Code Postal Organisation</label>
+                          <p className="text-xs font-bold text-sky-900">L5B3C4</p>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-sky-800 uppercase">Pays Organisation</label>
+                          <p className="text-xs font-bold text-sky-900">—</p>
+                        </div>
+                        <div className="space-y-1 col-span-2">
+                          <label className="text-[9px] font-bold text-sky-800 uppercase">Langue officielle de préférence du client <span className="text-slds-error">*</span></label>
+                          <select
+                            value={(naarsData as any).languageOfService || ''}
+                            onChange={(e) => setNAARSValue('languageOfService' as any, e.target.value)}
+                            className="slds-input text-xs"
+                          >
+                            <option value="">Sélectionner...</option>
+                            <option>Français</option>
+                            <option>Anglais</option>
+                            <option>Les deux (Anglais et/ou Français)</option>
+                            <option>Aucune (Anglais ou Français)</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1 col-span-2">
+                          <label className="text-[9px] font-bold text-sky-800 uppercase">Cette évaluation est-elle le résultat d'un suivi formel ?</label>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                              ✗ Non (fixe)
+                            </span>
+                            <span className="text-[9px] text-slate-400 italic">Cette valeur est fixe pour les orientations I&O individuelles.</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Accordéon 1 : Vie au Canada */}
+                      <div className="border border-slds-border rounded overflow-hidden">
+                        <button type="button" onClick={() => setActiveSection(activeSection === 'life' ? null : 'life')}
+                          className="w-full flex items-center justify-between p-3 bg-slds-bg hover:bg-white transition-colors">
+                          <span className="text-[11px] font-bold text-slds-text-primary uppercase">1. Vie au Canada — Atouts &amp; Besoins</span>
+                          <ChevronRight size={16} className={`transition-transform ${activeSection === 'life' ? 'rotate-90' : ''}`} />
+                        </button>
+                        {activeSection === 'life' && (
+                          <div className="p-4 bg-white space-y-4 border-t border-slds-border animate-in slide-in-from-top-1">
+                            <p className="text-[10px] font-black text-sky-700 uppercase tracking-widest border-b border-sky-100 pb-1">Atouts</p>
+                            {renderNAARSCheckbox("Client dispose d'actifs pour subvenir à ses besoins au Canada", "lifeAssetInd")}
+                            <div className={`pl-4 space-y-1 transition-opacity ${!naarsData.lifeAssetInd ? 'opacity-40' : ''}`}>
+                              {renderNAARSCheckbox("Réseaux familiaux et personnels", "lifeAssetFamilyNetworksInd", true, !naarsData.lifeAssetInd)}
+                              {renderNAARSCheckbox("Connaissance du Canada, des services gouvernementaux et autres services", "lifeAssetKnowledgeServicesInd", true, !naarsData.lifeAssetInd)}
+                              {renderNAARSCheckbox("Motivation liée à l'établissement et à l'intégration", "lifeAssetSettlementMotivationInd", true, !naarsData.lifeAssetInd)}
+                              {renderNAARSCheckbox("Autres compétences ou expériences utiles à la communauté ou au client", "lifeAssetOtherSkillsInd", true, !naarsData.lifeAssetInd)}
+                            </div>
+
+                            <p className="text-[10px] font-black text-sky-700 uppercase tracking-widest border-b border-sky-100 pb-1 pt-2">Besoins</p>
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                ✓ Oui (fixe)
+                              </span>
+                              <span className="text-[9px] text-slate-400 italic">Toujours Oui pour une séance SÉBAA.</span>
+                            </div>
+                            <div className="pl-4 space-y-3">
+                              {[
+                                { label: "Besoins de base", hint: "Vêtements, nourriture, articles de soins personnels ou de garde d'enfants, fournitures, ressources financières, etc.", id: 'lifeNeedsBasicIdentifiedInd', ref: 'lifeNeedsBasicReferralInd', funded: 'lifeNeedsBasicFundedReferralId' },
+                                { label: "Famille et enfants", hint: "Options de garde d'enfants, inscription des enfants à l'école, dynamiques familiales, conflits, etc.", id: 'lifeNeedsFamilyChildrenIdentifiedInd', ref: 'lifeNeedsFamilyChildrenReferralInd', funded: 'lifeNeedsFamilyChildrenFundedReferralId' },
+                                { label: "Santé et santé mentale", hint: "Santé mentale, maladies, handicaps, dépendances, bien-être, problèmes de sécurité, etc.", id: 'lifeNeedsHealthAndMentalIdentifiedInd', ref: 'lifeNeedsHealthAndMentalReferralInd', funded: 'lifeNeedsHealthAndMentalFundedReferralId' },
+                                { label: "Logement", hint: "Location, propriété, hypothèque, sécurité du logement, déménagement, propriétaires, parasites, services communs, etc.", id: 'lifeNeedsHousingIdentifiedInd', ref: 'lifeNeedsHousingReferralInd', funded: 'lifeNeedsHousingFundedReferralId' },
+                                { label: "Connaissance des services gouvernementaux", hint: "Accès aux services et prestations gouvernementaux, documentation, etc.", id: 'lifeNeedsGovernmentKnowledgeIdentifiedInd', ref: 'lifeNeedsGovernmentKnowledgeNoReferralInd', funded: 'lifeNeedsGovernmentKnowledgeFundedReferralId' },
+                                { label: "Connaissance du Canada", hint: "Apprendre davantage sur différents aspects du Canada, citoyenneté canadienne, connaissance du patrimoine francophone, relations avec les peuples autochtones, etc.", id: 'lifeNeedsCanadaKnowledgeIdentifiedInd', ref: 'lifeNeedsCanadaKnowledgeReferralInd', funded: 'lifeNeedsCanadaKnowledgeFundedReferralId' },
+                                { label: "Juridiques", hint: "Problèmes juridiques, connaissance du système juridique canadien, aide juridique, etc.", id: 'lifeNeedsLegalIdentifiedInd', ref: 'lifeNeedsLegalReferralInd', funded: 'lifeNeedsLegalFundedReferralId' },
+                                { label: "Financiers", hint: "Connaissances en finances au Canada, services bancaires, cartes de crédit, besoin de ressources financières, etc.", id: 'lifeNeedsFinancialIdentifiedInd', ref: 'lifeNeedsFinancialReferralInd', funded: 'lifeNeedsFinancialFundedReferralId' },
+                                { label: "Connaissance communautaire", hint: "", id: 'lifeNeedsCommunityKnowledgeIdentifiedInd', ref: 'lifeNeedsCommunityKnowledgeReferralInd', funded: 'lifeNeedsCommunityKnowledgeFundedReferralId' },
+                                { label: "Réseautage social", hint: "Améliorer l'accès aux réseaux sociaux, voisins, amis, etc.", id: 'lifeNeedsSocialNetworkingIdentifiedInd', ref: 'lifeNeedsSocialNetworkingReferralInd', funded: 'lifeNeedsSocialNetworkingFundedReferralId' },
+                                { label: "Faire face au racisme et à la discrimination", hint: "Charte des droits et libertés, discrimination ou racisme, violence basée sur le genre, etc.", id: 'lifeNeedsRacismIdentifiedInd', ref: 'lifeNeedsRacismReferralInd', funded: 'lifeNeedsRacismFundedReferralId' },
+                              ].map(n => {
+                                const isIdentified = !!(naarsData as any)[n.id];
+                                return (
+                                  <div key={n.id} className="p-2 bg-slate-50 rounded border border-slate-100 space-y-1">
+                                    <p className="text-[10px] font-bold text-slate-700">{n.label}</p>
+                                    {n.hint && (
+                                      <p className="text-[9px] text-slate-400 italic leading-relaxed">{n.hint}</p>
+                                    )}
+                                    <div className="pl-3 space-y-1 pt-1">
+                                      {renderNAARSCheckbox("Besoin identifié", n.id as any, true)}
+                                      {renderNAARSCheckbox("Aiguillé", n.ref as any, true, !isIdentified)}
+                                      {renderNAARSText("Aiguillage vers services financés (ID)", n.funded as any, !isIdentified)}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Accordéon 2 : Langue */}
+                      <div className="border border-slds-border rounded overflow-hidden">
+                        <button type="button" onClick={() => setActiveSection(activeSection === 'lang' ? null : 'lang')}
+                          className="w-full flex items-center justify-between p-3 bg-slds-bg hover:bg-white transition-colors">
+                          <span className="text-[11px] font-bold text-slds-text-primary uppercase">2. Compétences Linguistiques</span>
+                          <ChevronRight size={16} className={`transition-transform ${activeSection === 'lang' ? 'rotate-90' : ''}`} />
+                        </button>
+                        {activeSection === 'lang' && (
+                          <div className="p-4 bg-white space-y-4 border-t border-slds-border animate-in slide-in-from-top-1">
+                            <p className="text-[10px] font-black text-sky-700 uppercase tracking-widest border-b border-sky-100 pb-1">Atouts</p>
+                            {renderNAARSCheckbox("Client identifie des atouts liés à la langue", "languageAssetInd")}
+                            <div className={`pl-4 space-y-1 transition-opacity ${!naarsData.languageAssetInd ? 'opacity-40' : ''}`}>
+                              {renderNAARSCheckbox("Connaissance suffisante de l'anglais pour communiquer facilement", "languageAssetEnglishInd", true, !naarsData.languageAssetInd)}
+                              {renderNAARSCheckbox("Connaissance suffisante du français pour communiquer facilement", "languageAssetFrenchInd", true, !naarsData.languageAssetInd)}
+                              {renderNAARSCheckbox("Autres compétences en communication (ex: ALS/LSQ)", "languageAssetOtherInd", true, !naarsData.languageAssetInd)}
+                            </div>
+                            <p className="text-[10px] font-black text-sky-700 uppercase tracking-widest border-b border-sky-100 pb-1 pt-2">Besoins</p>
+                            {renderNAARSCheckbox("Client a des besoins linguistiques", "languageNeedsInd")}
+                            <div className={`pl-4 space-y-3 transition-opacity ${!naarsData.languageNeedsInd ? 'opacity-40' : ''}`}>
+                              {[
+                                { label: "Langues officielles", id: 'languageNeedsOfficialIdentifiedNeedInd', lang: 'languageNeedsOfficialLanguageId', ref: 'languageNeedsOfficialReferralInd', funded: 'languageNeedsOfficialFundedReferralId' },
+                                { label: "Littéracie", id: 'languageNeedsLiteracyIdentifiedNeedInd', lang: 'languageNeedsLiteracyLanguageId', ref: 'languageNeedsLiteracyReferralInd', funded: 'languageNeedsLiteracyFundedReferralId' },
+                                { label: "Langue de travail", id: 'languageNeedsEmploymentIdentifiedNeedInd', lang: 'languageNeedsEmploymentLanguageId', ref: 'languageNeedsEmploymentReferralInd', funded: 'languageNeedsEmploymentFundedReferralId' },
+                              ].map(n => {
+                                const parentDisabled = !naarsData.languageNeedsInd;
+                                const isIdentified = !!(naarsData as any)[n.id] && !parentDisabled;
+                                return (
+                                  <div key={n.id} className="p-2 bg-slate-50 rounded border border-slate-100 space-y-1">
+                                    <p className="text-[10px] font-bold text-slate-600">{n.label}</p>
+                                    <div className="pl-3 space-y-1">
+                                      {renderNAARSCheckbox("Besoin identifié", n.id as any, true, parentDisabled)}
+                                      <div className={`space-y-1 transition-opacity ${!isIdentified ? 'opacity-40' : ''}`}>
+                                        <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Langue</label>
+                                        <select
+                                          value={(naarsData as any)[n.lang] || ''}
+                                          onChange={(e) => !isIdentified ? undefined : setNAARSValue(n.lang as any, e.target.value)}
+                                          disabled={!isIdentified}
+                                          className="slds-input text-[11px] disabled:opacity-40 disabled:cursor-not-allowed"
+                                        >
+                                          <option value="">Sélectionner...</option>
+                                          <option>Français</option>
+                                          <option>Anglais</option>
+                                          <option>Les deux (anglais et français)</option>
+                                        </select>
+                                      </div>
+                                      {renderNAARSCheckbox("Aiguillé", n.ref as any, true, !isIdentified)}
+                                      {renderNAARSText("Aiguillage vers services financés (ID)", n.funded as any, !isIdentified)}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Accordéon 3 : Emploi & Éducation */}
+                      <div className="border border-slds-border rounded overflow-hidden">
+                        <button type="button" onClick={() => setActiveSection(activeSection === 'job' ? null : 'job')}
+                          className="w-full flex items-center justify-between p-3 bg-slds-bg hover:bg-white transition-colors">
+                          <span className="text-[11px] font-bold text-slds-text-primary uppercase">3. Emploi &amp; Éducation des Adultes</span>
+                          <ChevronRight size={16} className={`transition-transform ${activeSection === 'job' ? 'rotate-90' : ''}`} />
+                        </button>
+                        {activeSection === 'job' && (
+                          <div className="p-4 bg-white space-y-4 border-t border-slds-border animate-in slide-in-from-top-1">
+                            <p className="text-[10px] font-black text-sky-700 uppercase tracking-widest border-b border-sky-100 pb-1">Atouts</p>
+                            {renderNAARSCheckbox("Client possède des actifs liés à l'emploi ou à l'éducation des adultes", "employmentAssetInd")}
+                            <div className={`pl-4 grid grid-cols-1 gap-1 transition-opacity ${!naarsData.employmentAssetInd ? 'opacity-40' : ''}`}>
+                              {renderNAARSCheckbox("Actuellement employé au Canada", "employmentAssetEmployedInd", false, !naarsData.employmentAssetInd)}
+                              {renderNAARSCheckbox("Diplôme étranger reconnu au Canada", "employmentAssetForeignCredentialInd", false, !naarsData.employmentAssetInd)}
+                              {renderNAARSCheckbox("Connaissance du marché du travail canadien", "employmentAssetLabourMarketInd", false, !naarsData.employmentAssetInd)}
+                              {renderNAARSCheckbox("Diplôme/certificat d'études postsecondaires obtenu au Canada", "employmentAssetDegreeInCanadaInd", false, !naarsData.employmentAssetInd)}
+                              {renderNAARSCheckbox("Diplôme/certificat d'études postsecondaires obtenu à l'étranger", "employmentAssetDegreeOutsideCanadaInd", false, !naarsData.employmentAssetInd)}
+                              {renderNAARSCheckbox("Expérience professionnelle antérieure au Canada", "employmentAssetPreviousEmploymentInd", false, !naarsData.employmentAssetInd)}
+                              {renderNAARSCheckbox("Formation liée à l'emploi suivie ou terminée", "employmentAssetJobRelatedTrainingInd", false, !naarsData.employmentAssetInd)}
+                              {renderNAARSCheckbox("Expérience de travail en dehors du Canada", "employmentAssetWorkExperienceOutsideCanadaInd", false, !naarsData.employmentAssetInd)}
+                              {renderNAARSCheckbox("Autres compétences ou expériences spécialisées/liées au travail", "employmentAssetOtherSkillsInd", false, !naarsData.employmentAssetInd)}
+                            </div>
+                            <p className="text-[10px] font-black text-sky-700 uppercase tracking-widest border-b border-sky-100 pb-1 pt-2">Besoins</p>
+                            {renderNAARSCheckbox("Client a des besoins liés à l'emploi ou à l'éducation des adultes", "employmentNeedsInd")}
+                            <div className={`pl-4 space-y-3 transition-opacity ${!naarsData.employmentNeedsInd ? 'opacity-40' : ''}`}>
+                              {[
+                                { label: "Connaissance du marché du travail canadien", id: 'employmentLabourMarketNeedInd', ref: 'employmentLabourMarketReferralInd', funded: 'employmentLabourMarketFundedReferralId' },
+                                { label: "Trouver un emploi au Canada", id: 'employmentFindingEmploymentNeedInd', ref: 'employmentFindingEmploymentReferralInd', funded: 'employmentFindingEmploymentFundedReferralId' },
+                                { label: "Qualifications / Reconnaissance des diplômes", id: 'employmentCredentialsNeedInd', ref: 'employmentCredentialsReferralInd', funded: 'employmentCredentialsFundedReferralId' },
+                                { label: "Éducation des adultes", id: 'employmentEducationNeedInd', ref: 'employmentEducationReferralInd', funded: 'employmentEducationFundedReferralId' },
+                              ].map(n => {
+                                const parentDisabled = !naarsData.employmentNeedsInd;
+                                const isIdentified = !!(naarsData as any)[n.id] && !parentDisabled;
+                                return (
+                                  <div key={n.id} className="p-2 bg-slate-50 rounded border border-slate-100 space-y-1">
+                                    <p className="text-[10px] font-bold text-slate-600">{n.label}</p>
+                                    <div className="pl-3 space-y-1">
+                                      {renderNAARSCheckbox("Besoin identifié", n.id as any, true, parentDisabled)}
+                                      {renderNAARSCheckbox("Aiguillé", n.ref as any, true, !isIdentified)}
+                                      {renderNAARSText("Aiguillage vers services financés (ID)", n.funded as any, !isIdentified)}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Accordéon 4 : Format & Services de Soutien */}
+                      <div className="border border-slds-border rounded overflow-hidden">
+                        <button type="button" onClick={() => setActiveSection(activeSection === 'format' ? null : 'format')}
+                          className="w-full flex items-center justify-between p-3 bg-slds-bg hover:bg-white transition-colors">
+                          <span className="text-[11px] font-bold text-slds-text-primary uppercase">4. Format &amp; Services de Soutien</span>
+                          <ChevronRight size={16} className={`transition-transform ${activeSection === 'format' ? 'rotate-90' : ''}`} />
+                        </button>
+                        {activeSection === 'format' && (
+                          <div className="p-4 bg-white space-y-4 border-t border-slds-border animate-in slide-in-from-top-1">
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Format de l'évaluation <span className="text-slds-error">*</span></label>
+                              <div className="grid grid-cols-1 gap-1">
+                                {renderNAARSCheckbox("En personne", "formatInPersonInd")}
+                                {renderNAARSCheckbox("À distance — dirigé par le personnel", "formatRemoteStaffInd")}
+                                {renderNAARSCheckbox("À distance — auto-dirigé", "formatRemoteSelfInd")}
+                                {renderNAARSCheckbox("À distance par courriel / message texte / téléphone", "formatRemoteEmailTextPhoneInd")}
+                              </div>
+                            </div>
+
+                            {/* Services de soutien — Reçus vs Requis */}
+                            <div className="space-y-2 pt-2">
+                              <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Services de soutien</label>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-[10px] border-collapse">
+                                  <thead>
+                                    <tr className="bg-slate-100">
+                                      <th className="text-left p-2 font-bold text-slate-600 border border-slate-200">Service</th>
+                                      <th className="text-center p-2 font-bold text-emerald-700 border border-slate-200">Reçu</th>
+                                      <th className="text-center p-2 font-bold text-amber-700 border border-slate-200">Requis</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {[
+                                      { label: "Services de soutien (général)", recInd: 'supportReceivedInd', reqInd: 'supportRequiredInd' },
+                                      { label: "Garde d'enfants", recInd: 'childmindingReceivedInd', reqInd: 'childmindingRequiredInd' },
+                                      { label: "Équipement numérique", recInd: 'digitalEquipmentReceivedInd', reqInd: 'digitalEquipmentRequiredInd' },
+                                      { label: "Compétences numériques", recInd: 'digitalSkillReceivedInd', reqInd: 'digitalSkillRequiredInd' },
+                                      { label: "Interprétation orale", recInd: 'interpretationReceivedInd', reqInd: 'interpretationRequiredInd' },
+                                      { label: "Dispositions pour handicap", recInd: 'disabilitySupportReceivedInd', reqInd: 'disabilitySupportRequiredInd' },
+                                      { label: "Conseils à court terme", recInd: 'counsellingReceivedInd', reqInd: null },
+                                      { label: "Transport", recInd: 'transportationReceivedInd', reqInd: 'transportationRequiredInd' },
+                                      { label: "Traduction écrite", recInd: 'translationReceivedInd', reqInd: 'translationRequiredInd' },
+                                    ].map(s => (
+                                      <tr key={s.recInd} className="hover:bg-slate-50">
+                                        <td className="p-2 border border-slate-200 text-slate-700">{s.label}</td>
+                                        <td className="p-2 border border-slate-200 text-center">
+                                          <input type="checkbox" checked={!!naarsData[s.recInd as keyof Session]} onChange={() => toggleNAARSField(s.recInd as keyof Session)} className="rounded border-slds-border text-emerald-600 focus:ring-emerald-500" />
+                                        </td>
+                                        <td className="p-2 border border-slate-200 text-center">
+                                          {s.reqInd ? <input type="checkbox" checked={!!naarsData[s.reqInd as keyof Session]} onChange={() => toggleNAARSField(s.reqInd as keyof Session)} className="rounded border-slds-border text-amber-600 focus:ring-amber-500" /> : <span className="text-slate-300">—</span>}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Accordéon 5 : Plan & Aiguillages */}
+                      <div className="border border-slds-border rounded overflow-hidden">
+                        <button type="button" onClick={() => setActiveSection(activeSection === 'plan' ? null : 'plan')}
+                          className="w-full flex items-center justify-between p-3 bg-slds-bg hover:bg-white transition-colors">
+                          <span className="text-[11px] font-bold text-slds-text-primary uppercase">5. Plan d'Établissement &amp; Aiguillages</span>
+                          <ChevronRight size={16} className={`transition-transform ${activeSection === 'plan' ? 'rotate-90' : ''}`} />
+                        </button>
+                        {activeSection === 'plan' && (
+                          <div className="p-4 bg-white space-y-3 border-t border-slds-border animate-in slide-in-from-top-1">
+                            {renderNAARSCheckbox("Le plan d'établissement a été créé et partagé avec le client", "settlementPlanCreatedInd")}
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Le client a-t-il été aiguillé vers un fournisseur de services francophone ?</label>
+                              <select value={(naarsData as any).francophoneReferredId || ''} onChange={(e) => setNAARSValue('francophoneReferredId' as any, e.target.value)} className="slds-input text-xs">
+                                <option value="">Sélectionner...</option>
+                                <option>Oui</option>
+                                <option>Non — les services en français ne sont pas disponibles</option>
+                                <option>Non — le client n'a pas demandé d'aiguillage</option>
+                              </select>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Le client a-t-il été aiguillé vers la Gestion des cas ?</label>
+                              <select value={(naarsData as any).caseManagementReferredId || ''} onChange={(e) => setNAARSValue('caseManagementReferredId' as any, e.target.value)} className="slds-input text-xs">
+                                <option value="">Sélectionner...</option>
+                                <option>Oui</option>
+                                <option>Non — le client n'avait pas besoin d'être aiguillé vers la gestion des cas</option>
+                                <option>Non — le service de gestion des cas n'était pas disponible</option>
+                              </select>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                    </div>
+                  )}
                 </div>
               </div>
+            )}
+
+            {/* --- MODULE EMPLOI (SLE) --- */}
+            {(!isGroup && (sessionType === SessionType.EMPLOYMENT || showEmployment)) && (
+                <div className="space-y-4 pt-4 border-t border-slds-border">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Briefcase size={18} className="text-indigo-600" />
+                      <h3 className="text-sm font-bold text-slate-800">Module Emploi (SLE)</h3>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" checked={showEmployment} onChange={(e) => setShowEmployment(e.target.checked)} className="sr-only peer" />
+                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                      <span className="ml-2 text-[10px] font-bold text-slate-500 uppercase">{showEmployment ? 'Activé' : 'Désactivé'}</span>
+                    </label>
+                  </div>
+
+                  {showEmployment && (
+                    <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                      
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slds-text-secondary uppercase">
+                          Emplacement du client : Pays <span className="text-slds-error">*</span>
+                        </label>
+                        <select 
+                          name="clientLocationCountry" 
+                          value={clientLocationCountry}
+                          onChange={(e) => setClientLocationCountry(e.target.value)}
+                          className="slds-input text-slds-brand"
+                        >
+                          <option value="">Sélectionner un pays...</option>
+                          {IRCC_COUNTRIES.map(country => (
+                            <option key={country} value={country}>{country}</option>
+                          ))}
+                        </select>
+                        <p className="text-[9px] text-slds-text-secondary italic">
+                          Ce champ est utilisé pour la Colonne 13 du rapport IRCC (SLE).
+                        </p>
+                      </div>
+
+                      {/* Accordéon 1 : Statut & Profession */}
+                      <div className="border border-slds-border rounded overflow-hidden">
+                        <button type="button" onClick={() => setActiveSection(activeSection === 'emp-status' ? null : 'emp-status')}
+                          className="w-full flex items-center justify-between p-3 bg-slds-bg hover:bg-white transition-colors text-left">
+                          <span className="text-[11px] font-bold text-slds-text-primary uppercase">1. Statut Professionnel &amp; Profession</span>
+                          <ChevronRight size={16} className={`transition-transform ${activeSection === 'emp-status' ? 'rotate-90' : ''}`} />
+                        </button>
+                        {activeSection === 'emp-status' && (
+                          <div className="p-4 bg-white space-y-3 border-t border-slds-border animate-in slide-in-from-top-1">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Statut professionnel (Canada) <span className="text-red-500">*</span></label>
+                                <select value={(naarsData as any).employmentStatusCanada || ''} onChange={(e) => setNAARSValue('employmentStatusCanada' as any, e.target.value)} className="slds-input text-xs">
+                                  <option value="">Sélectionner...</option>
+                                  {EMPLOYMENT_STATUS_CANADA.map(o => <option key={o} value={o}>{o}</option>)}
+                                </select>
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Statut professionnel (Hors Canada)</label>
+                                <select value={(naarsData as any).employmentStatusOutside || ''} onChange={(e) => setNAARSValue('employmentStatusOutside' as any, e.target.value)} className="slds-input text-xs">
+                                  <option value="">Sélectionner...</option>
+                                  {EMPLOYMENT_STATUS_OUTSIDE.map(o => <option key={o} value={o}>{o}</option>)}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Profession prévue (CNP) <span className="text-red-500">*</span></label>
+                              <div className="relative">
+                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input 
+                                  list="cnp-list"
+                                  value={(naarsData as any).intendedOccupationCnp || ''} 
+                                  onChange={(e) => setNAARSValue('intendedOccupationCnp' as any, e.target.value)}
+                                  placeholder="Rechercher par code ou nom de métier..."
+                                  className="slds-input text-xs pl-10"
+                                />
+                                <datalist id="cnp-list">
+                                  {CNP_CODES.map(c => <option key={c} value={c} />)}
+                                </datalist>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Accordéon 2 : Ciblage Sectoriel */}
+                      <div className="border border-slds-border rounded overflow-hidden">
+                        <button type="button" onClick={() => setActiveSection(activeSection === 'emp-target' ? null : 'emp-target')}
+                          className="w-full flex items-center justify-between p-3 bg-slds-bg hover:bg-white transition-colors text-left">
+                          <span className="text-[11px] font-bold text-slds-text-primary uppercase">2. Population cible ou Secteur spécifique</span>
+                          <ChevronRight size={16} className={`transition-transform ${activeSection === 'emp-target' ? 'rotate-90' : ''}`} />
+                        </button>
+                        {activeSection === 'emp-target' && (
+                          <div className="p-4 bg-white space-y-3 border-t border-slds-border animate-in slide-in-from-top-1">
+                            {renderNAARSCheckbox("L'activité est destinée à une population cible ou secteur spécifique", "employmentTargetInd")}
+                            {(naarsData as any).employmentTargetInd && (
+                              <div className="pl-7 grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in">
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Type de population ciblée</label>
+                                  <select value={(naarsData as any).employmentTargetType || ''} onChange={(e) => setNAARSValue('employmentTargetType' as any, e.target.value)} className="slds-input text-xs">
+                                    <option value="">Sélectionner...</option>
+                                    {EMPLOYMENT_TARGET_TYPES.map(o => <option key={o} value={o}>{o}</option>)}
+                                  </select>
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Secteur spécifique</label>
+                                  <select value={(naarsData as any).employmentSectorSpecific || ''} onChange={(e) => setNAARSValue('employmentSectorSpecific' as any, e.target.value)} className="slds-input text-xs">
+                                    <option value="">Sélectionner...</option>
+                                    {EMPLOYMENT_SECTORS.map(o => <option key={o} value={o}>{o}</option>)}
+                                  </select>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Accordéon 3 : Activités/Sujets fournis */}
+                      <div className="border border-slds-border rounded overflow-hidden">
+                        <button type="button" onClick={() => setActiveSection(activeSection === 'emp-topics' ? null : 'emp-topics')}
+                          className="w-full flex items-center justify-between p-3 bg-slds-bg hover:bg-white transition-colors text-left">
+                          <span className="text-[11px] font-bold text-slds-text-primary uppercase">3. Activités et Sujets fournis</span>
+                          <ChevronRight size={16} className={`transition-transform ${activeSection === 'emp-topics' ? 'rotate-90' : ''}`} />
+                        </button>
+                        {activeSection === 'emp-topics' && (
+                          <div className="p-2 bg-white border-t border-slds-border">
+                            {EMPLOYMENT_TOPICS.map(t => renderNAARSCheckbox(t.label, t.field as keyof Session))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Accordéon 4 : Aiguillages Emploi */}
+                      <div className="border border-slds-border rounded overflow-hidden">
+                        <button type="button" onClick={() => setActiveSection(activeSection === 'emp-referrals' ? null : 'emp-referrals')}
+                          className="w-full flex items-center justify-between p-3 bg-slds-bg hover:bg-white transition-colors text-left">
+                          <span className="text-[11px] font-bold text-slds-text-primary uppercase">4. Aiguillages fournis</span>
+                          <ChevronRight size={16} className={`transition-transform ${activeSection === 'emp-referrals' ? 'rotate-90' : ''}`} />
+                        </button>
+                        {activeSection === 'emp-referrals' && (
+                          <div className="p-4 bg-white space-y-3 border-t border-slds-border animate-in slide-in-from-top-1">
+                            {renderNAARSCheckbox("Des services d'aiguillages ont été fournis", "employmentReferralProvidedInd")}
+                            {(naarsData as any).employmentReferralProvidedInd && (
+                              <div className="pl-7 space-y-1 animate-in fade-in border-l-2 border-indigo-100">
+                                <p className="text-[10px] font-bold text-indigo-600 uppercase mb-2">Types de références fournies :</p>
+                                <div className="grid grid-cols-1 gap-1">
+                                  {EMPLOYMENT_REFERRALS.map(r => renderNAARSCheckbox(r.label, r.field as keyof Session))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Accordéon 5 : Format & Services de Soutien (Emploi) */}
+                      <div className="border border-slds-border rounded overflow-hidden">
+                        <button type="button" onClick={() => setActiveSection(activeSection === 'emp-format' ? null : 'emp-format')}
+                          className="w-full flex items-center justify-between p-3 bg-slds-bg hover:bg-white transition-colors text-left">
+                          <span className="text-[11px] font-bold text-slds-text-primary uppercase">5. Format &amp; Services de Soutien</span>
+                          <ChevronRight size={16} className={`transition-transform ${activeSection === 'emp-format' ? 'rotate-90' : ''}`} />
+                        </button>
+                        {activeSection === 'emp-format' && (
+                          <div className="p-4 bg-white space-y-4 border-t border-slds-border animate-in slide-in-from-top-1">
+                            <div className="space-y-2">
+                               <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Format de l'activité <span className="text-red-500">*</span></label>
+                               <div className="grid grid-cols-1 gap-1">
+                                 {renderNAARSCheckbox("En personne", "formatInPersonInd")}
+                                 {renderNAARSCheckbox("À distance — dirigé par le personnel", "formatRemoteStaffInd")}
+                                 {renderNAARSCheckbox("À distance — auto-dirigé", "formatRemoteSelfInd")}
+                                 {renderNAARSCheckbox("À distance par courriel / message texte / téléphone", "formatRemoteEmailTextPhoneInd")}
+                               </div>
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Services de soutien</label>
+                              <div className="grid grid-cols-1 gap-1">
+                                {renderNAARSCheckbox("Garde d'enfants", "childmindingReceivedInd")}
+                                {renderNAARSCheckbox("Équipement de soutien numérique", "digitalEquipmentReceivedInd")}
+                                {renderNAARSCheckbox("Interprétation orale", "interpretationReceivedInd")}
+                                {renderNAARSCheckbox("Transport", "transportationReceivedInd")}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                    </div>
+                  )}
+                </div>
             )}
 
             {/* Notes Générales */}
@@ -713,6 +1398,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
               <textarea 
                 name="notes" 
                 defaultValue={session?.notes}
+                onChange={(e) => setFormNotes(e.target.value)}
                 placeholder="Commentaires additionnels..."
                 className="slds-input h-20 resize-none text-xs"
               />
