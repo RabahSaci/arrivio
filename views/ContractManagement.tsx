@@ -195,7 +195,13 @@ const ContractManagement: React.FC<ContractManagementProps> = ({
                   <div className="flex justify-between items-start mb-6">
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-black text-slds-brand uppercase tracking-tighter truncate">{contract.consultantName}</p>
-                      <h4 className="font-bold text-slate-900 truncate">Contrat #{contract.id.substring(0, 8)}</h4>
+                      <div className="flex items-center gap-3 mt-1">
+                        <h4 className="font-bold text-slate-900 truncate">Contrat #{contract.id.substring(0, 8)}</h4>
+                        <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                          <Calendar size={12} className="text-slate-400" />
+                          <span>Finit le {new Date(contract.endDate).toLocaleDateString('fr-FR')}</span>
+                        </div>
+                      </div>
                       {contract.signatureStatus && (
                         <div className={`inline-flex items-center mt-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border ${
                           contract.signatureStatus === 'SIGNE' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
