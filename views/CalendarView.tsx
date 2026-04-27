@@ -483,6 +483,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
                             const [y, m, d] = viewingSession.date.split('-').map(Number);
                             return new Date(y, m - 1, d).toLocaleDateString('fr-FR');
                           })()} à {viewingSession.startTime}
+                          <span className="text-slate-400 font-normal ml-1">({(viewingSession.duration / 60).toFixed(1).replace('.', ',')} h)</span>
                         </div>
                      </div>
                      <div className="space-y-1">
