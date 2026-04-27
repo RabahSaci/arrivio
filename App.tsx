@@ -213,6 +213,30 @@ const App: React.FC = () => {
     logActivity('LOGIN', 'PROFILE', `Connexion de l'utilisateur ${userName}`);
   };
 
+  const handleUpdateAccount = async (updatedProfile: Profile) => {
+    try {
+      const oldProfile = profiles.find(p => p.id === updatedProfile.id);
+      const delta = getDelta(oldProfile, updatedProfile);
+      
+      await apiService.update('profiles', updatedProfile.id, {
+        first_name: updatedProfile.firstName,
+        last_name: updatedProfile.lastName,
+        position: updatedProfile.position
+      });
+
+      setProfiles(prev => prev.map(p => p.id === updatedProfile.id ? updatedProfile : p));
+      if (updatedProfile.id === currentUserId) {
+        setCurrentUserName(`${updatedProfile.firstName} ${updatedProfile.lastName}`);
+      }
+      
+      await logActivity('UPDATE', 'PROFILE', `Mise à jour du profil de ${updatedProfile.firstName} ${updatedProfile.lastName}`, delta, updatedProfile.id);
+      addNotification(NotificationType.SUCCESS, "Profil mis à jour", "Vos informations ont été enregistrées.");
+    } catch (err) {
+      console.error("Error updating account:", err);
+      addNotification(NotificationType.SYSTEM, "Erreur", "Impossible de mettre à jour votre profil.");
+    }
+  };
+
   const addNotification = useCallback((type: NotificationType, title: string, message: string, targetId?: string) => {
     const newNotif: Notification = {
       id: Math.random().toString(36).substr(2, 9),
@@ -462,37 +486,10 @@ const App: React.FC = () => {
 
   const handleAddSession = async (newSession: Session) => {
     try {
-      await apiService.create('sessions', {
-        title: newSession.title,
-        type: newSession.type,
-        category: newSession.category,
-        date: newSession.date,
-        start_time: newSession.startTime,
-        duration: newSession.duration,
-        participant_ids: newSession.participantIds,
-        no_show_ids: newSession.noShowIds,
-        location: newSession.location,
-        facilitator_name: newSession.facilitatorName,
-        facilitator_type: newSession.facilitatorType,
-        advisor_name: newSession.advisorName,
-        discussed_needs: newSession.discussedNeeds,
-        actions: newSession.actions,
-        individual_status: newSession.individualStatus,
-        contract_id: newSession.contractId,
-        zoom_link: newSession.zoomLink,
-        zoom_id: newSession.zoomId,
-        needs_interpretation: newSession.needsInterpretation,
-        notes: newSession.notes,
-        subjects_covered: newSession.subjectsCovered,
-        target_client_types: newSession.targetClientTypes,
-        activity_format: newSession.activityFormat,
-        language_used: newSession.languageUsed,
-        service_setting: newSession.serviceSetting,
-        provider_location: newSession.providerLocation,
-        support_services: newSession.supportServices,
-        programming_type: newSession.programmingType,
-        client_location_country: newSession.clientLocationCountry
-      });
+      // Pass the full session object directly — toSnake() in apiService converts all camelCase keys
+      // to snake_case, and the backend sanitization filter keeps only known DB columns.
+      // This avoids fragile manual field filtering and ensures ALL SÉBAA/NAARS fields are transmitted.
+      await apiService.create('sessions', newSession);
       await logActivity('CREATE', 'SESSION', `Nouvelle séance programmée : ${newSession.title}`);
       addNotification(NotificationType.SUCCESS, "Séance enregistrée", `La séance "${newSession.title}" est ajoutée au calendrier.`);
       fetchData();
@@ -506,40 +503,10 @@ const App: React.FC = () => {
       const oldSession = sessions.find(s => s.id === session.id);
       const delta = getDelta(oldSession, session);
       
-      await apiService.update('sessions', session.id, {
-        title: session.title,
-        type: session.type,
-        date: session.date,
-        start_time: session.startTime,
-        duration: session.duration,
-        location: session.location,
-        zoom_link: session.zoomLink,
-        zoom_id: session.zoomId,
-        participant_ids: session.participantIds,
-        no_show_ids: session.noShowIds,
-        invoice_received: session.invoiceReceived,
-        invoice_submitted: session.invoiceSubmitted,
-        invoice_paid: session.invoicePaid,
-        invoice_amount: session.invoiceAmount,
-        discussed_needs: session.discussedNeeds,
-        actions: session.actions,
-        notes: session.notes,
-        individual_status: session.individualStatus,
-        advisor_id: session.advisorId,
-        contract_id: session.contractId,
-        facilitator_name: session.facilitatorName,
-        facilitator_type: session.facilitatorType,
-        advisor_name: session.advisorName,
-        subjects_covered: session.subjectsCovered,
-        target_client_types: session.targetClientTypes,
-        activity_format: session.activityFormat,
-        language_used: session.languageUsed,
-        service_setting: session.serviceSetting,
-        provider_location: session.providerLocation,
-        support_services: session.supportServices,
-        programming_type: session.programmingType,
-        client_location_country: session.clientLocationCountry
-      });
+      // Pass the full session object directly — toSnake() in apiService converts all camelCase keys
+      // to snake_case, and the backend sanitization filter keeps only known DB columns.
+      // This avoids fragile manual field filtering and ensures ALL SÉBAA/NAARS fields are transmitted.
+      await apiService.update('sessions', session.id, session);
       
       await logActivity('UPDATE', 'SESSION', `Modification de la séance : ${session.title}`, delta, session.id);
       addNotification(NotificationType.SUCCESS, "Mise à jour réussie", "Les informations de la séance ont été modifiées.");
@@ -649,20 +616,10 @@ const App: React.FC = () => {
               const oldClient = clients.find(c => c.id === u.id);
               const delta = getDelta(oldClient, u);
               
-              await apiService.update('clients', u.id, { 
-                status: u.status, 
-                assigned_partner_id: u.assignedPartnerId,
-                secondary_partner_ids: u.secondaryPartnerIds,
-                assigned_mentor_id: u.assignedMentorId,
-                inbound_referral_date: u.inboundReferralDate,
-                referral_date: u.referralDate,
-                referred_by_id: u.referredById,
-                acknowledged_at: u.acknowledgedAt,
-                contacted_at: u.contactedAt,
-                closed_at: u.closedAt,
-                consent_external_referral: u.consentExternalReferral,
-                is_unsubscribed: u.isUnsubscribed
-              }); 
+              // Omit nested entities that are handled separately
+              const { id, notes, referrals, ...updateData } = u;
+              
+              await apiService.update('clients', id, updateData); 
               
               setSelectedClient(u);
               setClients(prev => prev.map(c => c.id === u.id ? u : c));
@@ -677,7 +634,8 @@ const App: React.FC = () => {
           }} 
           onAddNote={async (id, content) => { 
             await apiService.create('notes', { client_id: id, author_name: currentUserName, content, timestamp: new Date().toISOString() }); 
-            await logActivity('UPDATE', 'CLIENT', `Ajout d'une note sur le dossier de ${selectedClient.firstName} ${selectedClient.lastName}`);
+            await logActivity('UPDATE', 'CLIENT', `Note ajoutée : "${content}"`, null, id);
+            fetchData();
           }}
           onUpdateSession={handleUpdateSession}
         />
@@ -910,6 +868,8 @@ const App: React.FC = () => {
       onLogout={handleLogout}
       currentUserId={currentUserId}
       currentUserName={currentUserName}
+      userProfile={profiles.find(p => p.id === currentUserId)}
+      onUpdateAccount={handleUpdateAccount}
       notifications={notifications}
       onClearNotification={(id) => setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n))}
       onClearAllNotifications={() => setNotifications(prev => prev.map(n => ({ ...n, isRead: true })))}

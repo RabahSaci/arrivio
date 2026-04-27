@@ -102,8 +102,9 @@ const sessionSchema = z.object({
   service_setting: z.string().optional(),
   provider_location: z.string().optional(),
   support_services: z.string().optional(),
-  programming_type: z.string().optional().default('Service standard')
-}).passthrough(); // Allow additional fields from frontend (category, type, etc.)
+  programming_type: z.string().optional().default('Service standard'),
+  // NAARS Fields (Passthrough handles most, but we can be explicit for core logic if needed)
+}).passthrough(); // Allow additional fields from frontend (category, type, NAARS fields etc.)
 
 const contractSchema = z.object({
   consultant_name: z.string().min(2),
@@ -496,15 +497,24 @@ app.post('/api/ai/invoke', async (req, res) => {
 app.post('/api/auth/update-password', async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   try {
-    // Re-auth to verify current password
-    const { error: reAuthError } = await supabaseAdmin.auth.signInWithPassword({
+    // Create a temporary client with ANON_KEY to verify the current password
+    // This avoids "auth session missing" errors often tied to service_role client usage for login
+    const authValidator = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_ANON_KEY,
+      { auth: { persistSession: false } }
+    );
+
+    const { error: reAuthError } = await authValidator.auth.signInWithPassword({
       email: req.user.email,
       password: currentPassword
     });
     if (reAuthError) return res.status(401).json({ error: "Mot de passe actuel incorrect" });
 
-    // Update password using the user's client (req.sb)
-    const { error } = await req.sb.auth.updateUser({ password: newPassword });
+    // Update password using the admin client by user ID
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(req.user.id, { 
+      password: newPassword 
+    });
     if (error) throw error;
 
     res.json({ message: "Mot de passe mis à jour avec succès" });
@@ -553,14 +563,30 @@ app.post('/api/auth/signup', authorize([UserRole.ADMIN]), async (req, res) => {
 app.get('/api/sessions', async (req, res) => {
   try {
     const client = getReadClient('sessions', req);
+    
+    // Optimization: Standard fetch only gets essential fields to avoid 32MB limit
+    let selectFields = '*';
+    if (req.query.full !== 'true') {
+      selectFields = 'id, title, type, category, date, start_time, duration, participant_ids, no_show_ids, facilitator_name, facilitator_type, advisor_name, advisor_id, contract_id, individual_status, location, created_at, programming_type, zoom_link, zoom_id, notes, discussed_needs, actions';
+    }
+
     let query = client
       .from('sessions')
-      .select('*')
-      .order('date', { ascending: false });
+      .select(selectFields);
+
+    if (req.query.startDate) {
+      query = query.gte('date', req.query.startDate);
+    }
+    if (req.query.endDate) {
+      query = query.lte('date', req.query.endDate);
+    }
+
+    query = query.order('date', { ascending: false });
 
     const data = await fetchAll(query);
     res.json(data);
   } catch (err) {
+    console.error('[GET /api/sessions] Error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -735,44 +761,7 @@ app.post('/api/sessions/bulk', async (req, res) => {
         });
       }
 
-      const { date, start_time, duration, facilitator_name, advisor_name, contract_id } = s;
-      const startMinutes = timeToMinutes(start_time);
-      const endMinutes = startMinutes + parseInt(duration);
-
-      // 2. Overlap validation (TEMPORARILY DISABLED for historical imports)
-      /*
-      const { data: existingSessions, error: fetchError } = await supabaseAdmin
-        .from('sessions')
-        .select('title, start_time, duration, facilitator_name, advisor_name')
-        .eq('date', date);
-
-      if (fetchError) throw fetchError;
-
-      for (const existing of existingSessions) {
-        const sStart = timeToMinutes(existing.start_time);
-        const sEnd = sStart + parseInt(existing.duration);
-        const hasOverlap = (startMinutes < sEnd && sStart < endMinutes);
-        
-        if (hasOverlap) {
-          if (facilitator_name && existing.facilitator_name === facilitator_name) {
-            return res.status(400).json({ 
-              error: `Conflit d'horaire pour le facilitateur "${facilitator_name}" avec la séance "${existing.title}" (${existing.start_time}).`,
-              rowIndex: i,
-              field: 'start_time',
-              clientName: s.title
-            });
-          }
-          if (advisor_name && existing.advisor_name === advisor_name) {
-            return res.status(400).json({ 
-              error: `Conflit d'horaire pour le conseiller "${advisor_name}" avec la séance "${existing.title}" (${existing.start_time}).`,
-              rowIndex: i,
-              field: 'start_time',
-              clientName: s.title
-            });
-          }
-        }
-      }
-      */
+      const { date, start_time, duration, contract_id } = s;
 
       // 3. Contract check
       if (contract_id) {
@@ -837,51 +826,47 @@ app.post('/api/sessions', validate(sessionSchema), async (req, res) => {
 
     if (fetchError) throw fetchError;
 
-    for (const s of existingSessions) {
-      const sStart = timeToMinutes(s.start_time);
-      const sEnd = sStart + parseInt(s.duration);
-
+    for (const existing of existingSessions) {
+      const sStart = timeToMinutes(existing.start_time);
+      const sEnd = sStart + existing.duration;
       const hasOverlap = (startMinutes < sEnd && sStart < endMinutes);
       
       if (hasOverlap) {
-        if (facilitator_name && s.facilitator_name === facilitator_name) {
-          return res.status(400).json({ 
-            error: `Conflit d'horaire pour le facilitateur "${facilitator_name}" avec la séance "${s.title}" (${s.start_time}).` 
-          });
+        if (facilitator_name && existing.facilitator_name === facilitator_name) {
+          return res.status(400).json({ error: `Conflit d'horaire pour le facilitateur "${facilitator_name}" avec la séance "${existing.title}" (${existing.start_time}).` });
         }
-        if (advisor_name && s.advisor_name === advisor_name) {
-          return res.status(400).json({ 
-            error: `Conflit d'horaire pour le conseiller "${advisor_name}" avec la séance "${s.title}" (${s.start_time}).` 
-          });
+        if (advisor_name && existing.advisor_name === advisor_name) {
+          return res.status(400).json({ error: `Conflit d'horaire pour le conseiller "${advisor_name}" avec la séance "${existing.title}" (${existing.start_time}).` });
         }
       }
     }
 
-    // 2. Contract check - USE ADMIN to see global status
+    // 2. Contract validation
     if (contract_id) {
-      const { data: contract, error: contractError } = await supabaseAdmin
-        .from('contracts')
-        .select('total_sessions, used_sessions, consultant_name')
-        .eq('id', contract_id)
-        .single();
-      
-      if (contract && contract.used_sessions >= contract.total_sessions) {
-        return res.status(400).json({ error: `Le contrat de ${contract.consultant_name} est épuisé (${contract.used_sessions}/${contract.total_sessions} séances).` });
-      }
+       const { data: contract } = await supabaseAdmin.from('contracts').select('total_sessions, used_sessions').eq('id', contract_id).single();
+       if (contract && contract.used_sessions >= contract.total_sessions) {
+         return res.status(400).json({ error: "Le quota de séances pour ce contrat est épuisé." });
+       }
     }
 
-    // 3. Create - USE ADMIN IF APPROPRIATE
+    // 3. Create
     const client = getMutationClient('sessions', req.sb);
-    
-    // DEEP DIAGNOSTIC
-    console.info(`[CREATE SESSION] User: ${req.user?.email}, Client is Admin: ${client === supabaseAdmin}`);
-
-    // Auto-fill advisor_id from current user
-    const sessionToInsert = { ...req.body, advisor_id: req.user?.id };
-
+    const sessionToInsert = { ...req.body };
     const { data, error } = await client.from('sessions').insert([sessionToInsert]).select();
     
     if (error) {
+      if (error.code === '42703') {
+        // A column doesn't exist — likely NAARS migration 001_add_naars_columns.sql not yet applied
+        console.warn('[CREATE sessions] Missing column error — NAARS migration may not be applied. Retrying with base fields only.');
+        const baseFields = ['title', 'type', 'category', 'date', 'start_time', 'duration', 'participant_ids', 'no_show_ids', 'location', 'notes', 'facilitator_name', 'facilitator_type', 'advisor_name', 'advisor_id', 'discussed_needs', 'actions', 'individual_status', 'contract_id', 'zoom_link', 'zoom_id', 'needs_interpretation', 'programming_type', 'subjects_covered', 'target_client_types', 'activity_format', 'language_used', 'service_setting', 'provider_location', 'support_services', 'client_location_country', 'invoice_received', 'invoice_submitted', 'invoice_paid', 'invoice_amount'];
+        const fallbackBody = Object.fromEntries(Object.entries(sessionToInsert).filter(([k]) => baseFields.includes(k)));
+        const { data: d2, error: e2 } = await client.from('sessions').insert([fallbackBody]).select();
+        if (e2) {
+          console.error(`Error creating session in DB (fallback):`, e2.message);
+          throw e2;
+        }
+        return res.status(201).json(d2[0]);
+      }
       console.error(`Error creating session in DB:`, error.message);
       throw error;
     }
@@ -930,136 +915,12 @@ async function fetchAll(query) {
 
 // Helper to determine if we should use admin client for reading (SELECT)
 function getReadClient(table, req) {
-  const userRole = req.user?.role;
-  const isAdminOrManager = (userRole === UserRole.ADMIN || userRole === UserRole.MANAGER);
-
-  // These tables are required by ALL roles to function (reference data, no PII risk)
-  // RLS would block advisors/partners from reading them, breaking the UI
-  // workflow_tasks and sessions are included here so automation/list sync works for the team
-  const alwaysAdminRead = ['partners', 'app_settings', 'contracts', 'sessions', 'workflow_tasks'];
-
-  // These tables contain sensitive data — only admins/managers get global visibility
-  const adminOnlyRead = ['profiles', 'clients'];
-
-  if (alwaysAdminRead.includes(table)) {
-    return supabaseAdmin;
-  }
-  if (adminOnlyRead.includes(table) && isAdminOrManager) {
+  const restrictedTables = ['activity_logs', 'app_settings', 'partners', 'contracts'];
+  if (req.user?.role === UserRole.ADMIN || req.user?.role === UserRole.MANAGER || restrictedTables.includes(table)) {
     return supabaseAdmin;
   }
   return req.sb;
 }
-
-// Specific route for contracts to calculate used_sessions on the fly
-app.get('/api/contracts', async (req, res) => {
-  try {
-    const db = getAdminClient();
-    
-    // 1. Fetch all contracts using fetchAll to bypass Supabase limit
-    const contractsQuery = db.from('contracts').select('*');
-    const contracts = await fetchAll(contractsQuery);
-
-    // 2. Fetch all sessions that are linked to a contract
-    let sessions = [];
-    try {
-      const sessionsQuery = db.from('sessions').select('contract_id').not('contract_id', 'is', null);
-      sessions = await fetchAll(sessionsQuery);
-    } catch (sessErr) {
-      console.error('[GET /api/contracts] Failed to fetch sessions for counting:', sessErr.message);
-      // We don't fail the whole request if only the session count fails
-    }
-
-    // 3. Count sessions per contract_id
-    const counts = (sessions || []).reduce((acc, s) => {
-      if (s.contract_id) {
-        acc[s.contract_id] = (acc[s.contract_id] || 0) + 1;
-      }
-      return acc;
-    }, {});
-
-    console.log('[GET /api/contracts] Counts:', JSON.stringify(counts));
-    console.log('[GET /api/contracts] Contracts sample:', contracts?.slice(0, 2).map(c => ({ id: c.id, name: c.consultant_name })));
-
-    // 4. Merge counts into the contracts list
-    const results = contracts.map(c => {
-      const count = counts[c.id] || 0;
-      console.log(`[GET /api/contracts] Contract ${c.consultant_name} (${c.id}) -> used_sessions: ${count}`);
-      return {
-        ...c,
-        used_sessions: count
-      };
-    });
-
-    res.json(results);
-  } catch (err) {
-    console.error('[GET /api/contracts] Critical Error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Generic proxy for other tables
-app.get('/api/:table', async (req, res) => {
-  const { table } = req.params;
-  const { page, limit, search, status, city, country, startDate, endDate, facilitator, type, priority } = req.query;
-
-  try {
-    const client = getReadClient(table, req);
-    let query = client.from(table).select('*', { count: 'exact' });
-    
-    // --- FILTERS ---
-    if (search) {
-      if (table === 'clients') {
-        query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
-      } else if (table === 'sessions') {
-        query = query.ilike('title', `%${search}%`);
-      }
-    }
-
-    // Special logic for Referral Management
-    if (table === 'clients' && req.query.referralOnly === 'true') {
-      // In a real PG setting, this would be a join or subquery. 
-      // For now, we allow filtering on clients who ALREADY have a partner OR logic handled by UI
-      // But to be efficient, let's at least filter by partner presence or a specific referral status if it existed.
-      // If we want exact match of the previous logic (has sessions), we need a subquery.
-      // Supabase supports filtering on joined tables if we select them.
-      // But let's keep it simple for now: match the status filters and partner filters.
-    }
-
-    if (status && status !== 'ALL') query = query.eq(table === 'clients' ? 'status' : 'individual_status', status);
-    if (city && city !== 'ALL') query = query.eq('destination_city', city);
-    if (country && country !== 'ALL') query = query.eq('origin_country', country);
-    if (facilitator && facilitator !== 'ALL') query = query.eq('facilitator_name', facilitator);
-    if (type && type !== 'ALL') query = query.eq('type', type);
-
-    if (startDate) query = query.gte(table === 'sessions' ? 'date' : 'arrival_date', startDate);
-    if (endDate) query = query.lte(table === 'sessions' ? 'date' : 'arrival_date', endDate);
-
-    // --- ORDERING ---
-    if (table === 'clients') {
-      query = query.order('created_at', { ascending: false });
-    } else if (table === 'activity_logs') {
-      query = query.order('timestamp', { ascending: false });
-    } else if (table === 'sessions') {
-      query = query.order('date', { ascending: false }).order('start_time', { ascending: false });
-    }
-
-    // --- PAGINATION ---
-    if (page && limit) {
-      const from = (parseInt(page) - 1) * parseInt(limit);
-      const to = from + parseInt(limit) - 1;
-      const { data, count, error } = await query.range(from, to);
-      if (error) throw error;
-      return res.json({ data: data || [], total: count, page: parseInt(page), limit: parseInt(limit) });
-    }
-
-    // Fallback: Fetch All (for legacy components or small tables)
-    const data = await fetchAll(query);
-    res.json(data);
-  } catch (err) {
-    console.error(`Internal server error for ${table}:`, err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // Helper to determine if we should use admin client for mutations
 // (After roles are already verified by authorize middleware)
@@ -1109,68 +970,63 @@ app.delete('/api/partners/:id', authenticate_then_authorize([UserRole.ADMIN, Use
   }
 });
 
-// Specialized route for messaging: mark as read
-app.post('/api/messages/mark-read', async (req, res) => {
-  const { otherParticipantId } = req.body;
-  const currentUserId = req.user?.id;
 
-  if (!otherParticipantId || !currentUserId) {
-    console.error('[POST /api/messages/mark-read] Missing parameters:', { otherParticipantId, currentUserId });
-    return res.status(400).json({ error: "Missing required parameters" });
-  }
-
-  console.info(`[MARK-READ] Admin attempting to mark msgs read. currentUserId (receiver): ${currentUserId}, otherParticipantId (sender): ${otherParticipantId}`);
-
+// Generic GET (all tables)
+app.get('/api/:table', async (req, res) => {
+  const { table } = req.params;
   try {
-    const db = getAdminClient();
-    const { data, error } = await db
-      .from('messages')
-      .update({ is_read: true })
-      .eq('receiver_id', currentUserId)
-      .eq('sender_id', otherParticipantId)
-      .eq('is_read', false)
-      .select();
-
-    console.info(`[MARK-READ] Supabase update complete. Error?`, error ? error.message : 'None', `Data:`, data ? data.length : 0);
-
-    if (error) throw error;
-    res.json({ success: true });
+    const client = getReadClient(table, req);
+    let query = client.from(table).select('*');
+    
+    // Sort logic for specific tables
+    if (table === 'sessions') query = query.order('date', { ascending: false });
+    if (table === 'clients') query = query.order('last_name', { ascending: true });
+    
+    const data = await fetchAll(query);
+    res.json(data);
   } catch (err) {
-    console.error('[POST /api/messages/mark-read] Error:', err.message);
-    res.status(500).json({ error: "Failed to mark messages as read" });
+    console.error(`[GET /api/${table}] CRITICAL ERROR:`, err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Generic Bulk Create - Must be defined BEFORE Single Create to prevent route collision
+// Generic GET by ID — returns a SINGLE record with ALL columns (SELECT *)
+// Critical for SÉBAA/NAARS hydration in SessionModal (apiService.getById uses this)
+app.get('/api/:table/:id', async (req, res) => {
+  const { table, id } = req.params;
+  try {
+    const client = getReadClient(table, req);
+    // Always use SELECT * to include all columns (NAARS booleans, funded referral IDs, etc.)
+    const { data, error } = await client.from(table).select('*').eq('id', id).single();
+    if (error) {
+      if (error.code === 'PGRST116') { // Row not found
+        return res.status(404).json({ error: `Élément ${id} introuvable dans ${table}` });
+      }
+      throw error;
+    }
+    res.json(data);
+  } catch (err) {
+    console.error(`[GET /api/${table}/${id}] Error:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 app.post('/api/:table/bulk', async (req, res) => {
   const { table } = req.params;
-  const items = req.body;
-  
-  if (!Array.isArray(items)) {
-    return res.status(400).json({ error: "Un tableau d'entrées est requis." });
-  }
-
   try {
     const db = getAdminClient();
-    console.info(`[BULK CREATE] Table: ${table}, Items: ${items.length}, User: ${req.user?.email}`);
-    
-    let query = db.from(table);
-    
-    // Pour les tâches, on utilise upsert pour ignorer silencieusement les doublons de signature
-    if (table === 'workflow_tasks') {
-      const { data, error } = await query
-        .upsert(items, { onConflict: 'processed_signature', ignoreDuplicates: true })
-        .select();
-      if (error) throw error;
-      return res.status(201).json(data);
-    } else {
-      const { data, error } = await query.insert(items).select();
-      if (error) throw error;
-      return res.status(201).json(data);
+    const items = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Le corps de la requête doit être un tableau non vide.' });
     }
+    console.info(`[BULK CREATE] Table: ${table}, Count: ${items.length}, User: ${req.user?.email}`);
+    const { data, error } = await db.from(table).insert(items).select();
+    if (error) throw error;
+    res.status(201).json(data);
   } catch (err) {
     console.error(`[BULK CREATE] Error in ${table}:`, err.message);
-    res.status(500).json({ error: `Erreur lors de la création groupée dans ${table}.` });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -1200,19 +1056,20 @@ async function handleCreate(table, req, res) {
     const db = getAdminClient();
     console.info(`[CREATE] Table: ${table}, User: ${req.user?.email}, Role: ${req.user?.role}`);
 
-    // Sanitization for sessions
+    // Sanitization for sessions - Allow both camel and snake case for critical fields
     if (table === 'sessions') {
-      const knownSessionFields = [
-        'title', 'type', 'category', 'date', 'start_time', 'duration',
-        'participant_ids', 'no_show_ids', 'location', 'notes',
-        'facilitator_name', 'facilitator_type', 'advisor_name', 'advisor_id',
-        'contract_id', 'zoom_link', 'zoom_id', 'needs_interpretation',
-        'individual_status', 'discussed_needs', 'actions',
-        'invoice_received', 'invoice_submitted', 'invoice_paid', 'invoice_amount',
-        'created_at'
-      ];
+      const knownSessionFields = ["id","title","type","category","date","start_time","startTime","duration","participant_ids","participantIds","no_show_ids","noShowIds","location","notes","facilitator_name","facilitatorName","facilitator_type","facilitatorType","advisor_name","advisorName","contract_id","contractId","individual_status","individualStatus","discussed_needs","discussedNeeds","actions","zoom_link","zoomLink","zoom_id","zoomId","needs_interpretation","needsInterpretation","invoice_received","invoiceReceived","invoice_submitted","invoiceSubmitted","invoice_paid","invoicePaid","created_at","status","invoice_amount","invoiceAmount","advisor_id","advisorId","subjects_covered","subjectsCovered","target_client_types","targetClientTypes","activity_format","activityFormat","language_used","languageUsed","service_setting","serviceSetting","provider_location","providerLocation","support_services","supportServices","programming_type","programmingType","client_location_country","clientLocationCountry"];
       body = Object.fromEntries(
-        Object.entries(body).filter(([key]) => knownSessionFields.includes(key))
+        Object.entries(body).filter(([key]) => 
+          knownSessionFields.includes(key) || 
+          key.startsWith('zoom') || 
+          key.includes('_ind') ||         // NAARS boolean indicators
+          key.endsWith('_id') ||           // NAARS funded referral IDs (text)
+          key.endsWith('Id') ||            // camelCase funded IDs
+          key.includes('referred') ||      // francophone_referred_id, case_management_referred_id
+          key.includes('language_of') ||   // language_of_service
+          key.includes('languageOf')       // camelCase
+        )
       );
       console.info(`[CREATE sessions] Sanitized body keys: ${Object.keys(body).join(', ')}`);
     }
@@ -1252,6 +1109,47 @@ app.put('/api/:table/:id', async (req, res) => {
     }
   }
 
+  // Custom logic for clients: Advisors can only modify arrival-related fields AND referral fields
+  if (table === 'clients' && req.user?.role === UserRole.ADVISOR) {
+    const allowedAdvisorFields = [
+      // Arrival-related fields
+      'destination_city', 
+      'arrival_date', 
+      'chosen_city', 
+      'arrival_date_approx', 
+      'arrival_date_confirmed',
+      'destination_change',
+      // Referral/transfer fields (advisors can manage client referrals)
+      'status',
+      'assigned_partner_id',
+      'secondary_partner_ids',
+      'referral_date',
+      'referred_by_id',
+      'closed_at',
+      'consent_external_referral',
+      'is_unsubscribed'
+    ];
+    
+    // Filter req.body to keep ONLY allowed fields
+    const filteredBody = {};
+    Object.keys(req.body).forEach(key => {
+      if (allowedAdvisorFields.includes(key)) {
+        filteredBody[key] = req.body[key];
+      }
+    });
+
+    // Check if other fields were attempted to be changed
+    const attemptedFields = Object.keys(req.body);
+    const forbiddenFields = attemptedFields.filter(f => !allowedAdvisorFields.includes(f));
+    
+    if (forbiddenFields.length > 0) {
+      console.warn(`[SECURITY] Advisor ${req.user.email} attempted to modify unauthorized fields: ${forbiddenFields.join(', ')}`);
+      // We overwrite the body with filtered version to allow the allowed ones but strip others
+      req.body = filteredBody;
+    }
+  }
+
+
   // For now restrict updates on other sensitive tables
   if (['contracts', 'partners', 'app_settings', 'profiles'].includes(table)) {
      return authorize([UserRole.ADMIN, UserRole.MANAGER])(req, res, async () => {
@@ -1266,22 +1164,23 @@ async function handleUpdate(table, id, req, res) {
   try {
     // Always use supabaseAdmin for mutations on protected tables (bypasses RLS)
     const client = getMutationClient(table, req.sb);
-    console.info(`[UPDATE] Table: ${table}, ID: ${id}, Client is Admin: ${client === supabaseAdmin}`);
     
     let body = { ...req.body };
 
-    // Strip fields that may not exist in the sessions table schema
+    // Strip fields that may not exist in the sessions table schema - Allow both cases
     if (table === 'sessions') {
-      const knownSessionFields = [
-        'title', 'type', 'category', 'date', 'start_time', 'duration',
-        'participant_ids', 'no_show_ids', 'location', 'notes',
-        'facilitator_name', 'facilitator_type', 'advisor_name', 'advisor_id',
-        'contract_id', 'zoom_link', 'zoom_id', 'needs_interpretation',
-        'individual_status', 'discussed_needs', 'actions',
-        'invoice_received', 'invoice_submitted', 'invoice_paid', 'invoice_amount'
-      ];
+      const knownSessionFields = ["id","title","type","category","date","start_time","startTime","duration","participant_ids","participantIds","no_show_ids","noShowIds","location","notes","facilitator_name","facilitatorName","facilitator_type","facilitatorType","advisor_name","advisorName","contract_id","contractId","individual_status","individualStatus","discussed_needs","discussedNeeds","actions","zoom_link","zoomLink","zoom_id","zoomId","needs_interpretation","needsInterpretation","invoice_received","invoiceReceived","invoice_submitted","invoiceSubmitted","invoice_paid","invoicePaid","created_at","status","invoice_amount","invoiceAmount","advisor_id","advisorId","subjects_covered","subjectsCovered","target_client_types","targetClientTypes","activity_format","activityFormat","language_used","languageUsed","service_setting","serviceSetting","provider_location","providerLocation","support_services","supportServices","programming_type","programmingType","client_location_country","clientLocationCountry","employment_status_canada","employmentStatusCanada","employment_status_outside","employmentStatusOutside","intended_occupation_cnp","intendedOccupationCnp","employment_target_type","employmentTargetType","employment_sector_specific","employmentSectorSpecific"];
       body = Object.fromEntries(
-        Object.entries(body).filter(([key]) => knownSessionFields.includes(key))
+        Object.entries(body).filter(([key]) => 
+          knownSessionFields.includes(key) || 
+          key.startsWith('zoom') || 
+          key.includes('_ind') ||         // NAARS boolean indicators
+          key.endsWith('_id') ||           // NAARS funded referral IDs (text)
+          key.endsWith('Id') ||            // camelCase funded IDs
+          key.includes('referred') ||      // francophone_referred_id, case_management_referred_id
+          key.includes('language_of') ||   // language_of_service
+          key.includes('languageOf')       // camelCase
+        )
       );
       console.info(`[UPDATE sessions] Sanitized body keys: ${Object.keys(body).join(', ')}`);
     }
