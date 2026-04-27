@@ -1,0 +1,63 @@
+steps:
+  # 1. Build & Push Frontend
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'Dockerfile.frontend'
+      - '-t'
+      - 'gcr.io/gen-lang-client-0648253165/arrivio-frontend:latest'
+      - '.'
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/gen-lang-client-0648253165/arrivio-frontend:latest']
+
+  # 2. Build & Push Backend
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/gen-lang-client-0648253165/arrivio-backend:latest'
+      - './server'
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/gen-lang-client-0648253165/arrivio-backend:latest']
+
+  # 3. Deploy Frontend
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'arrivio-frontend'
+      - '--image'
+      - 'gcr.io/gen-lang-client-0648253165/arrivio-frontend:latest'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--project'
+      - 'gen-lang-client-0648253165'
+
+  # 4. Deploy Backend
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'arrivio-backend'
+      - '--image'
+      - 'gcr.io/gen-lang-client-0648253165/arrivio-backend:latest'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--project'
+      - 'gen-lang-client-0648253165'
+
+images:
+  - 'gcr.io/gen-lang-client-0648253165/arrivio-frontend:latest'
+  - 'gcr.io/gen-lang-client-0648253165/arrivio-backend:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

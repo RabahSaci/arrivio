@@ -38,6 +38,7 @@ const TaskDashboard: React.FC<TaskDashboardProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'ALL'>('ALL');
+  const [categoryFilter, setCategoryFilter] = useState<'ALL' | 'IEDEC' | 'REFERRAL' | 'UPLOAD' | 'HAS_NOTES'>('ALL');
   const [advisorFilter, setAdvisorFilter] = useState<string>('ALL');
   const [showCommentModal, setShowCommentModal] = useState<WorkflowTask | null>(null);
   const [tempComment, setTempComment] = useState('');
@@ -58,6 +59,20 @@ const TaskDashboard: React.FC<TaskDashboardProps> = ({
       
       // Filtre d'intervenant (Privilèges seulement)
       if (canSeeAll && advisorFilter !== 'ALL' && task.assignedToId !== advisorFilter) return false;
+
+      // Filtre de catégorie (iEDEC vs Référencements vs Téléversements)
+      if (categoryFilter === 'IEDEC') {
+        if (task.type !== 'FILL_SESSION_FOLLOWUP') return false;
+      }
+      if (categoryFilter === 'UPLOAD') {
+        if (task.type !== 'UPLOAD_PARTICIPANTS') return false;
+      }
+      if (categoryFilter === 'REFERRAL') {
+        if (task.type !== 'REFER_CLIENT') return false;
+      }
+      if (categoryFilter === 'HAS_NOTES') {
+        if (!task.comment) return false;
+      }
       
       // Filtre de recherche
       if (searchQuery) {
@@ -79,7 +94,7 @@ const TaskDashboard: React.FC<TaskDashboardProps> = ({
       // Puis par date d'échéance
       return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
     });
-  }, [tasks, activeRole, currentUserId, statusFilter, advisorFilter, searchQuery, canSeeAll]);
+  }, [tasks, activeRole, currentUserId, statusFilter, advisorFilter, categoryFilter, searchQuery, canSeeAll]);
 
   // Pagination des tâches
   const paginatedTasks = useMemo(() => {
@@ -113,7 +128,7 @@ const TaskDashboard: React.FC<TaskDashboardProps> = ({
     if (showCommentModal && tempComment.trim()) {
       onUpdateTask({
         ...showCommentModal,
-        description: (showCommentModal.description || '') + `\n\n[Note]: ${tempComment}`
+        comment: tempComment.trim()
       });
       setShowCommentModal(null);
       setTempComment('');
@@ -178,6 +193,21 @@ const TaskDashboard: React.FC<TaskDashboardProps> = ({
                   <option value="ALL">Tous les statuts</option>
                   <option value={TaskStatus.PENDING}>À faire</option>
                   <option value={TaskStatus.COMPLETED}>Terminés</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-2xl border border-slate-100">
+                <CheckCircle2 size={16} className="text-slate-400" />
+                <select 
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value as any)}
+                  className="bg-transparent border-none text-sm font-bold text-slate-700 focus:ring-0 cursor-pointer"
+                >
+                  <option value="ALL">Toutes catégories</option>
+                  <option value="IEDEC">iEDEC (Saisie)</option>
+                  <option value="UPLOAD">Téléversements</option>
+                  <option value="REFERRAL">Référencements</option>
+                  <option value="HAS_NOTES">Tâches avec notes</option>
                 </select>
               </div>
 
@@ -263,6 +293,16 @@ const TaskDashboard: React.FC<TaskDashboardProps> = ({
                       <p className="text-slate-500 text-sm font-medium mb-4 line-clamp-2">
                         {task.description}
                       </p>
+
+                      {task.comment && (
+                        <div className="mb-4 p-4 bg-blue-50/50 rounded-xl border border-blue-100 flex items-start gap-3">
+                          <MessageSquare size={14} className="text-blue-500 mt-1 shrink-0" />
+                          <div>
+                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">Note de l'intervenant</p>
+                            <p className="text-sm font-semibold text-slate-700 italic">"{task.comment}"</p>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-slate-50">
                         <div className="flex items-center gap-6">

@@ -33,7 +33,9 @@ import {
   MessageSquare,
   Zap,
   ZapOff,
-  ClipboardList
+  ClipboardList,
+  User,
+  Save
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -49,6 +51,8 @@ interface LayoutProps {
   onNotificationSelect: (notif: AppNotification) => void;
   currentUserId: string;
   currentUserName: string;
+  userProfile?: Profile;
+  onUpdateAccount?: (profile: Profile) => Promise<void>;
   tasks?: WorkflowTask[];
 }
 
@@ -64,10 +68,20 @@ const Layout: React.FC<LayoutProps> = ({
   onNotificationSelect,
   currentUserId,
   currentUserName,
+  userProfile,
+  onUpdateAccount,
   tasks = []
 }) => {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  
+  // Profile update state
+  const [profileFirstName, setProfileFirstName] = useState('');
+  const [profileLastName, setProfileLastName] = useState('');
+  const [profilePosition, setProfilePosition] = useState('');
+
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -111,6 +125,43 @@ const Layout: React.FC<LayoutProps> = ({
       window.removeEventListener('focus', handleFocus);
     };
   }, []);
+
+  useEffect(() => {
+    if (userProfile && isProfileModalOpen) {
+      setProfileFirstName(userProfile.firstName);
+      setProfileLastName(userProfile.lastName);
+      setProfilePosition(userProfile.position || '');
+      if (!isEditingProfile) setIsEditingProfile(false); // Ensure starting point
+    } else {
+      setIsEditingProfile(false);
+    }
+  }, [userProfile, isProfileModalOpen]);
+
+  const handleProfileUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userProfile || !onUpdateAccount) return;
+
+    setIsChanging(true);
+    setChangeStatus('idle');
+    try {
+      await onUpdateAccount({
+        ...userProfile,
+        firstName: profileFirstName,
+        lastName: profileLastName,
+        position: profilePosition
+      });
+      setChangeStatus('success');
+      setTimeout(() => {
+        setIsProfileModalOpen(false);
+        setChangeStatus('idle');
+      }, 1500);
+    } catch (err: any) {
+      setChangeStatus('error');
+      setErrorMessage(err.message || "Erreur lors de la mise à jour");
+    } finally {
+      setIsChanging(false);
+    }
+  };
 
   useEffect(() => {
     if (!currentUserId) return;
@@ -413,6 +464,124 @@ const Layout: React.FC<LayoutProps> = ({
         </div>
       )}
 
+      {/* Modale de modification de profil */}
+      {isProfileModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[40px] w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-2xl bg-slds-brand text-white shadow-lg shadow-slds-brand/20">
+                  <User size={24} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900 tracking-tight">Mon Profil</h3>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Gérer vos informations personnelles</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsProfileModalOpen(false)}
+                className="p-3 hover:bg-slate-100 rounded-full text-slate-400 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-8 space-y-6">
+              {changeStatus === 'success' && (
+                <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center gap-3 text-emerald-600 animate-in slide-in-from-top-2">
+                  <CheckCircle2 size={20} />
+                  <p className="text-xs font-bold uppercase tracking-widest">Profil mis à jour !</p>
+                </div>
+              )}
+
+              {changeStatus === 'error' && (
+                <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3 text-red-600 animate-in slide-in-from-top-1">
+                  <AlertCircle size={20} className="shrink-0 mt-0.5" />
+                  <p className="text-xs font-bold leading-relaxed">{errorMessage}</p>
+                </div>
+              )}
+
+              {!isEditingProfile ? (
+                <div className="space-y-6">
+                  {[
+                    { label: 'Prénom', value: profileFirstName },
+                    { label: 'Nom', value: profileLastName },
+                    { label: 'Poste / Fonction', value: profilePosition },
+                  ].map((f, i) => (
+                    <div key={i} className="group flex flex-col gap-1 relative">
+                       <div className="flex items-center gap-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">{f.label}</label>
+                        <button 
+                          onClick={() => setIsEditingProfile(true)}
+                          className="opacity-0 group-hover:opacity-100 p-1 -m-1 text-slate-300 hover:text-blue-600 transition-all"
+                          title="Modifier"
+                        >
+                          <Edit2 size={10} />
+                        </button>
+                       </div>
+                       <p className="text-base font-bold text-slate-800">{f.value || '---'}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <form onSubmit={handleProfileUpdate} className="space-y-6 animate-in fade-in duration-300">
+                  <div className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Prénom</label>
+                      <input 
+                        type="text" 
+                        required 
+                        value={profileFirstName}
+                        onChange={(e) => setProfileFirstName(e.target.value)}
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-600 transition-all font-bold text-slate-700" 
+                        autoFocus
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nom</label>
+                      <input 
+                        type="text" 
+                        required 
+                        value={profileLastName}
+                        onChange={(e) => setProfileLastName(e.target.value)}
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-600 transition-all font-bold text-slate-700" 
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Poste / Fonction</label>
+                      <input 
+                        type="text" 
+                        value={profilePosition}
+                        onChange={(e) => setProfilePosition(e.target.value)}
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-600 transition-all font-bold text-slate-700" 
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-3 pt-4">
+                    <button 
+                      type="submit" 
+                      disabled={isChanging || changeStatus === 'success'}
+                      className="w-full py-4 bg-slds-brand text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-xl shadow-slds-brand/20 hover:bg-slds-brand-dark transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {isChanging ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                      Enregistrer les modifications
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => setIsEditingProfile(false)}
+                      className="w-full py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-800 transition-colors"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="flex-1 ml-64 p-8">
         <header className="sticky top-8 mb-8 flex justify-between items-center bg-white/80 backdrop-blur-md p-4 px-6 rounded-[32px] border border-slate-200 shadow-sm z-50">
           <div className="flex items-center gap-4">
@@ -451,13 +620,21 @@ const Layout: React.FC<LayoutProps> = ({
                {pushPermission === 'granted' && pushEnabled ? <Zap size={20} /> : <ZapOff size={20} />}
              </button>
 
-             <button 
-               onClick={() => setIsPasswordModalOpen(true)}
-               className="p-2.5 bg-slate-100 text-slate-500 hover:bg-slate-200 rounded-xl transition-all"
-               title="Sécurité"
-             >
-               <Key size={20} />
-             </button>
+              <button 
+                onClick={() => setIsProfileModalOpen(true)}
+                className="p-2.5 bg-slate-100 text-slate-500 hover:bg-slate-200 rounded-xl transition-all"
+                title="Modifier mon profil"
+              >
+                <User size={20} />
+              </button>
+
+              <button 
+                onClick={() => setIsPasswordModalOpen(true)}
+                className="p-2.5 bg-slate-100 text-slate-500 hover:bg-slate-200 rounded-xl transition-all"
+                title="Sécurité"
+              >
+                <Key size={20} />
+              </button>
 
              {[UserRole.ADVISOR, UserRole.ADMIN].includes(activeRole) && (
                <button 

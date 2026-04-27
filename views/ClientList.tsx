@@ -47,6 +47,7 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
   const [filterSessionsRange, setFilterSessionsRange] = useState<'ALL' | '0' | '1-5' | '5+'>('ALL');
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
+  const [filterDeadline, setFilterDeadline] = useState<'ALL' | 'ARRIVED' | 'TODAY' | 'IMMINENT' | 'CLOSE' | 'FUTURE'>('ALL');
 
   // OPTIMIZATION: Index sessions per client for lightning-fast attendance calculation
   const sessionsByClient = useMemo(() => {
@@ -61,19 +62,37 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
   }, [sessions]);
 
   const getAttendanceStats = (clientId: string) => {
-    const clientSessions = sessionsByClient.get(clientId) || [];
+    const todayStr = new Date().toISOString().split('T')[0];
+    const clientSessions = (sessionsByClient.get(clientId) || []).filter(s => s.date <= todayStr);
+    
     if (clientSessions.length === 0) return null;
     
-    const attendedSessions = clientSessions.filter(s => {
+    let attendedCount = 0;
+    let relevantTotalCount = 0;
+
+    clientSessions.forEach(s => {
       if (s.category === SessionCategory.INDIVIDUAL) {
-        return s.individualStatus === AttendanceStatus.PRESENT;
+        if (s.individualStatus === AttendanceStatus.CANCELLED || s.individualStatus === AttendanceStatus.DECALEE) {
+          return;
+        }
+        relevantTotalCount++;
+        // Fallback: if individualStatus is not set, use noShowIds to determine presence
+        const isPresent = s.individualStatus === AttendanceStatus.PRESENT
+          || (s.individualStatus == null && !s.noShowIds?.includes(clientId));
+        if (isPresent) attendedCount++;
+      } else {
+        relevantTotalCount++;
+        if (!s.noShowIds?.includes(clientId)) {
+          attendedCount++;
+        }
       }
-      return !s.noShowIds?.includes(clientId);
     });
     
+    if (relevantTotalCount === 0) return null;
+
     return {
-      rate: Math.round((attendedSessions.length / clientSessions.length) * 100),
-      total: clientSessions.length
+      rate: Math.round((attendedCount / relevantTotalCount) * 100),
+      total: relevantTotalCount
     };
   };
   const [currentPage, setCurrentPage] = useState(1);
@@ -113,8 +132,8 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
       if (filterStatus !== 'ALL' && client.status !== filterStatus) return false;
       if (filterCity !== 'ALL' && client.destinationCity !== filterCity) return false;
       if (filterCountry !== 'ALL' && client.originCountry !== filterCountry) return false;
-      if (filterStartDate && (!client.registrationDate || client.registrationDate < filterStartDate)) return false;
-      if (filterEndDate && (!client.registrationDate || client.registrationDate > filterEndDate)) return false;
+      if (filterStartDate && (!client.arrivalDate || client.arrivalDate < filterStartDate)) return false;
+      if (filterEndDate && (!client.arrivalDate || client.arrivalDate > filterEndDate)) return false;
       
       // Filter by session count
       if (filterSessionsRange !== 'ALL') {
@@ -124,13 +143,33 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
         if (filterSessionsRange === '5+' && count <= 5) return false;
       }
 
+      if (filterDeadline !== 'ALL') {
+        if (!client.arrivalDate) return false;
+        const [y, m, d] = client.arrivalDate.split('-').map(Number);
+        const arrivalDate = new Date(y, m - 1, d);
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        arrivalDate.setHours(0, 0, 0, 0);
+        
+        // Difference in days (rounded properly)
+        const diffTime = arrivalDate.getTime() - today.getTime();
+        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+        if (filterDeadline === 'ARRIVED' && diffDays >= 0) return false;
+        if (filterDeadline === 'TODAY' && diffDays !== 0) return false;
+        if (filterDeadline === 'IMMINENT' && (diffDays <= 0 || diffDays > 7)) return false;
+        if (filterDeadline === 'CLOSE' && (diffDays <= 0 || diffDays > 30)) return false;
+        if (filterDeadline === 'FUTURE' && diffDays <= 30) return false;
+      }
+
       if (activeRole === UserRole.PARTNER && client.assignedPartnerId !== currentPartnerId) return false;
       
       return true;
     }).sort((a, b) => {
       return new Date(b.registrationDate || 0).getTime() - new Date(a.registrationDate || 0).getTime();
     });
-  }, [clients, searchTerm, filterStatus, filterCity, filterCountry, filterStartDate, filterEndDate, filterSessionsRange, activeRole, currentPartnerId, sessionsByClient]);
+  }, [clients, searchTerm, filterStatus, filterCity, filterCountry, filterStartDate, filterEndDate, filterSessionsRange, filterDeadline, activeRole, currentPartnerId, sessionsByClient]);
 
   const totalItems = filteredClients.length;
 
@@ -154,6 +193,7 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
     setFilterCity('ALL');
     setFilterCountry('ALL');
     setFilterSessionsRange('ALL');
+    setFilterDeadline('ALL');
     setFilterStartDate('');
     setFilterEndDate('');
   };
@@ -185,7 +225,15 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
           const rows = data.slice(1); 
 
           const findIdx = (keywords: string[]) => {
-            return headers.findIndex(h => keywords.some(k => h?.includes(k.toLowerCase())));
+            return headers.findIndex(h => {
+              const header = h?.toLowerCase().trim() || '';
+              return keywords.some(k => {
+                const keyword = k.toLowerCase();
+                // Protection spécifique : "nom" ne doit pas matcher "prénom"
+                if (keyword === 'nom' && header.includes('prénom')) return false;
+                return header.includes(keyword);
+              });
+            });
           };
 
           // Mapping des index par colonnes
@@ -511,7 +559,20 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
             <option value="5+">Plus de 5 séances</option>
           </select>
 
-          {(searchTerm || filterStatus !== 'ALL' || filterCity !== 'ALL' || filterCountry !== 'ALL' || filterSessionsRange !== 'ALL' || filterStartDate || filterEndDate) && (
+          <select 
+            className="slds-input slds-input-compact w-auto text-[10px] h-7"
+            value={filterDeadline}
+            onChange={(e) => setFilterDeadline(e.target.value as any)}
+          >
+            <option value="ALL">Echéance (Tous)</option>
+            <option value="ARRIVED">Déjà arrivés</option>
+            <option value="TODAY">Arrivée Aujourd'hui</option>
+            <option value="IMMINENT">Moins de 7 jours (Rouge)</option>
+            <option value="CLOSE">Moins de 30 jours (Orange)</option>
+            <option value="FUTURE">Plus de 30 jours (Vert)</option>
+          </select>
+
+          {(searchTerm || filterStatus !== 'ALL' || filterCity !== 'ALL' || filterCountry !== 'ALL' || filterSessionsRange !== 'ALL' || filterDeadline !== 'ALL' || filterStartDate || filterEndDate) && (
             <button 
               onClick={resetFilters}
               className="text-[9px] font-black text-slds-brand px-1 hover:underline uppercase"
@@ -556,6 +617,7 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
                 <th>Contact</th>
                 <th className="text-center">Statut</th>
                 <th>Localisation</th>
+                <th>Arrivée</th>
                 <th>Référé le</th>
                 <th></th>
               </tr>
@@ -636,7 +698,50 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
                       </div>
                     </td>
                     <td className="text-xs text-slds-text-primary">
-                      {client.referralDate ? new Date(client.referralDate).toLocaleDateString('fr-FR') : '—'}
+                      {(() => {
+                        if (!client.arrivalDate) return '—';
+                        const [y, m, d] = client.arrivalDate.split('-').map(Number);
+                        const arrivalDate = new Date(y, m - 1, d);
+                        if (isNaN(arrivalDate.getTime())) return client.arrivalDate;
+
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        const arrival = new Date(arrivalDate);
+                        arrival.setHours(0, 0, 0, 0);
+
+                        const diffTime = arrival.getTime() - today.getTime();
+                        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+                        
+                        let badge = null;
+                        if (diffDays < 0) {
+                          badge = <span className="ml-1.5 px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[8px] font-black uppercase">Arrivé</span>;
+                        } else if (diffDays === 0) {
+                          badge = <span className="ml-1.5 px-1.5 py-0.5 rounded bg-red-100 text-red-600 text-[8px] font-black uppercase">Aujourd'hui</span>;
+                        } else if (diffDays <= 7) {
+                          badge = <span className="ml-1.5 px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-100 text-[8px] font-black uppercase">Dans {diffDays} j.</span>;
+                        } else if (diffDays <= 30) {
+                          badge = <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100 text-[8px] font-black uppercase">Dans {diffDays} j.</span>;
+                        } else {
+                          const months = Math.floor(diffDays / 30);
+                          badge = <span className="ml-1.5 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-100 text-[8px] font-black uppercase">Dans {months} m.</span>;
+                        }
+
+                        const formattedDate = arrivalDate.toLocaleDateString('fr-FR');
+
+                        return (
+                          <div className="flex items-center">
+                            <span>{formattedDate}</span>
+                            {badge}
+                          </div>
+                        );
+                      })()}
+                    </td>
+                    <td className="text-xs text-slds-text-primary">
+                      {(() => {
+                        if (!client.inboundReferralDate) return '—';
+                        const [y, m, d] = client.inboundReferralDate.split('-').map(Number);
+                        return new Date(y, m - 1, d).toLocaleDateString('fr-FR');
+                      })()}
                     </td>
                     <td className="text-right">
                       <div className="flex items-center justify-end gap-2">

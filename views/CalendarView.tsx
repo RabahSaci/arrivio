@@ -23,6 +23,8 @@ import {
   MapPin,
   Info,
   CheckCircle2,
+  Target,
+  Activity,
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
@@ -78,7 +80,16 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
     }
   };
 
-  // Cleanup au démontage
+  // Synchronisation de la séance en cours de consultation avec les données fraîches reçues du serveur
+  useEffect(() => {
+    if (viewingSession) {
+      const updated = sessions.find(s => s.id === viewingSession.id);
+      if (updated) {
+        setViewingSession(updated);
+      }
+    }
+  }, [sessions, viewingSession?.id]);
+
   useEffect(() => {
     return () => {
       if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
@@ -222,49 +233,60 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
 
   return (
     <div className="space-y-4">
-      {/* Stats KPI SLDS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="slds-card p-4">
-          <p className="text-[10px] font-bold text-slds-text-secondary uppercase tracking-widest mb-1">Total Séances Groupe</p>
-          <p className="text-2xl font-bold text-slds-text-primary">{stats.total}</p>
-        </div>
-        <div className="slds-card p-4">
-          <p className="text-[10px] font-bold text-slds-success uppercase tracking-widest mb-1">Livrées</p>
-          <p className="text-2xl font-bold text-slds-text-primary">{stats.delivered}</p>
-        </div>
-        <div className="slds-card p-4">
-          <p className="text-[10px] font-bold text-slds-brand uppercase tracking-widest mb-1">Prévues</p>
-          <p className="text-2xl font-bold text-slds-text-primary">{stats.planned}</p>
-        </div>
-      </div>
-
-      {/* Barre d'actions SLDS */}
-      <div className="flex gap-4 items-center mb-2">
-        <button 
-          onClick={() => setShowFilters(!showFilters)}
-          className={`slds-button ${showFilters || activeFiltersCount > 0 ? 'slds-button-brand' : 'slds-button-neutral'} flex items-center gap-2 relative`}
-        >
-          <div className="relative flex items-center gap-2">
-            <Filter size={14} />
-            {activeFiltersCount > 0 && (
-              <span className="absolute -top-2 -left-2 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 border-2 border-white animate-in zoom-in duration-300">
-                {activeFiltersCount}
-              </span>
-            )}
+      {/* En-tête Compact : Stats & Actions */}
+      <div className="flex flex-col lg:flex-row gap-3 items-center justify-between mb-2">
+        <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+          {/* Stat 1 : Total */}
+          <div className="bg-white border border-slate-200 rounded-2xl px-5 py-2 shadow-sm flex flex-col items-center justify-center min-w-[110px]">
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1.5 text-center">Total</p>
+            <p className="text-2xl font-black text-slate-700 leading-none text-center">{stats.total}</p>
           </div>
-          {showFilters ? 'Masquer les filtres' : 'Afficher les filtres'}
-          {showFilters ? <ChevronUp size={14} className="ml-1" /> : <ChevronDown size={14} className="ml-1" />}
-        </button>
 
-        <button 
-          onClick={() => { 
-            setEditingSession(null);
-            setShowSessionModal(true); 
-          }}
-          className="slds-button slds-button-brand !px-6 ml-auto"
-        >
-          <Plus size={14} className="mr-2" /> Planifier
-        </button>
+          {/* Stat 2 : Livrées */}
+          <div className="bg-white border border-slate-200 rounded-2xl px-5 py-2 shadow-sm flex flex-col items-center justify-center min-w-[110px]">
+            <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest leading-none mb-1.5 text-center">Livrées</p>
+            <p className="text-2xl font-black text-slate-700 leading-none text-center">{stats.delivered}</p>
+          </div>
+
+          {/* Stat 3 : Prévues */}
+          <div className="bg-white border border-slate-200 rounded-2xl px-5 py-2 shadow-sm flex flex-col items-center justify-center min-w-[110px]">
+            <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest leading-none mb-1.5 text-center">Prévues</p>
+            <p className="text-2xl font-black text-slate-700 leading-none text-center">{stats.planned}</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 w-full lg:w-auto lg:ml-auto">
+          {/* Bouton Filtres */}
+          <button 
+            onClick={() => setShowFilters(!showFilters)}
+            className={`slds-button ${showFilters || activeFiltersCount > 0 ? 'slds-button-brand' : 'slds-button-neutral'} !py-2 !px-4 flex items-center gap-2 relative`}
+          >
+            <div className="relative flex items-center gap-2">
+              <Filter size={14} />
+              {activeFiltersCount > 0 && (
+                <span className="absolute -top-2 -left-2 min-w-[16px] h-[16px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-1 border-2 border-white">
+                  {activeFiltersCount}
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-widest">
+              {showFilters ? 'Masquer' : 'Filtres'}
+            </span>
+            {showFilters ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+
+          {/* Bouton Planifier */}
+          <button 
+            onClick={() => { 
+                setEditingSession(null);
+                setShowSessionModal(true); 
+            }}
+            className="slds-button slds-button-brand !py-2 !px-6 w-full lg:w-auto"
+          >
+            <Plus size={16} className="mr-2" /> 
+            <span className="text-[10px] font-black uppercase tracking-widest">Planifier une séance</span>
+          </button>
+        </div>
       </div>
 
       {/* Filtres SLDS avec Auto-hide */}
@@ -464,13 +486,37 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
                         </div>
                      </div>
                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold text-slds-text-secondary uppercase">Lieu / Accès</p>
-                        <div className="flex items-center gap-2 text-sm font-bold text-slds-text-primary">
-                          {viewingSession.zoomLink ? (
-                            <a href={viewingSession.zoomLink} target="_blank" className="text-slds-brand underline flex items-center gap-1"><Video size={14}/> Lien Virtuel</a>
-                          ) : (
-                            <span className="flex items-center gap-1"><MapPin size={14} className="text-slds-text-secondary"/> {viewingSession.location}</span>
-                          )}
+                        <p className="text-[10px] font-bold text-slds-text-secondary uppercase">Lien Visioconférence</p>
+                        <div className="space-y-1.5 pt-1">
+                           {(() => {
+                             const s = viewingSession as any;
+                             const rawLink = s.zoomLink || s.zoom_link;
+                             return rawLink ? (
+                               <div className="flex items-center gap-2 text-sm font-bold">
+                                 <Video size={14} className="text-slds-brand shrink-0" />
+                                 <a href={rawLink} target="_blank" rel="noopener noreferrer" className="text-slds-brand underline truncate block max-w-full">
+                                   Accéder à la rencontre
+                                 </a>
+                               </div>
+                             ) : (
+                               <div className="flex items-center gap-2 text-sm text-slds-text-secondary">
+                                 <Video size={14} className="shrink-0" />
+                                 <span className="italic">Non renseigné</span>
+                               </div>
+                             );
+                           })()}
+
+                          {(() => {
+                            const s = viewingSession as any;
+                            const rawId = s.zoomId || s.zoom_id || s.zoomid;
+                            if (!rawId) return null;
+                            return (
+                              <div className="flex items-center gap-2 text-sm font-bold text-slds-text-primary">
+                                <span className="text-[9px] font-black text-white bg-slds-brand px-1.5 py-0.5 rounded shrink-0">ID</span>
+                                <span className="font-mono tracking-wider">{rawId}</span>
+                              </div>
+                            );
+                          })()}
                         </div>
                      </div>
                    </div>
@@ -498,6 +544,38 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
                         </div>
                       </div>
                    </div>
+
+                   {/* Activité CFGT (Besoins & Actions) */}
+                   {viewingSession.category === SessionCategory.INDIVIDUAL && (
+                     <div className="space-y-3 pt-2">
+                       {viewingSession.discussedNeeds && (
+                         <div className="p-3 bg-slds-bg border border-slds-border rounded shadow-sm">
+                           <p className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-2 mb-2">
+                             <Target size={12} className="text-slds-brand" /> Besoins discutés
+                           </p>
+                           <p className="text-xs text-slds-text-primary leading-relaxed font-semibold">{viewingSession.discussedNeeds}</p>
+                         </div>
+                       )}
+                       {viewingSession.actions && (
+                         <div className="p-3 bg-blue-50 border border-blue-100 rounded shadow-sm">
+                           <p className="text-[10px] font-bold text-slds-brand uppercase flex items-center gap-2 mb-2">
+                             <Activity size={12} /> Actions planifiées
+                           </p>
+                           <p className="text-xs text-slds-text-primary leading-relaxed font-semibold">{viewingSession.actions}</p>
+                         </div>
+                       )}
+                     </div>
+                   )}
+
+                   {/* Notes Générales */}
+                   {viewingSession.notes && (
+                     <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg border-l-4 border-l-slate-400">
+                       <p className="text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-2">
+                         <FileText size={12} /> Notes générales
+                       </p>
+                       <p className="text-xs font-medium text-slate-600 leading-relaxed italic">"{viewingSession.notes}"</p>
+                     </div>
+                   )}
 
                    {checkCanModify(viewingSession) && (
                      <div className="pt-6 border-t border-slds-border flex gap-3">

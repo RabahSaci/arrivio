@@ -568,7 +568,11 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
                     <td>
                       <div className="flex items-center gap-2 text-xs font-bold text-slds-text-primary">
                         <Calendar size={14} className="text-slds-brand" />
-                        {new Date(item.arrivalDate).toLocaleDateString('fr-FR')}
+                        {(() => {
+                          if (!item.arrivalDate) return '—';
+                          const [y, m, d] = item.arrivalDate.split('-').map(Number);
+                          return new Date(y, m - 1, d).toLocaleDateString('fr-FR');
+                        })()}
                       </div>
                     </td>
                     <td>

@@ -1,0 +1,14 @@
+.gcloudignore
+.git
+.gitignore
+node_modules/
+**/node_modules/
+dist/
+server/node_modules/
+.env
+server/.env
+server/.env.production
+*.sql
+*.xlsx
+search_results.csv
+scratch/

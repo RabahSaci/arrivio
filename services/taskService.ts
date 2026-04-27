@@ -136,27 +136,31 @@ export const refreshAutomatedTasks = (
       const alreadyExists = existingTasks.some(t => t.processedSignature === signature);
 
       if (!alreadyExists) {
-        // A. Trouvons LA séance la plus récente de ce client (quel que soit le type)
-        const clientSessions = relevantSessions
+        // A. Trouvons LA séance d'établissement la plus récente de ce client.
+        //    RÈGLE STRICTE : seul le conseiller ayant conduit une séance d'ÉTABLISSEMENT
+        //    est responsable du référencement. Les conseillers d'autres services ne sont pas concernés.
+        const establishmentSessions = relevantSessions
           .filter(s => {
-            // Indispensable : La séance doit mentionner ce client (ID ou Code)
-            const isMatch = s.participantIds?.includes(client.id) || 
+            const isMatch = s.participantIds?.includes(client.id) ||
                            (client.clientCode && s.participantIds?.includes(client.clientCode));
-            
             if (!isMatch) return false;
 
-            // Si individuelle, on n'alerte que si le client était présent
+            // UNIQUEMENT les séances de type Établissement
+            if (s.type !== SessionType.ESTABLISHMENT) return false;
+
+            // Si individuelle, le client doit avoir été présent
             if (s.category === SessionCategory.INDIVIDUAL) {
               return s.individualStatus === AttendanceStatus.PRESENT;
             }
-            
-            return true;
+
+            // Pour les groupes, le client ne doit pas être absent
+            return !s.noShowIds?.includes(client.id);
           })
           .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-        const lastSession = clientSessions[0];
+        const lastSession = establishmentSessions[0];
 
-        // RÈGLE : Pas de tâche si aucune séance trouvée dans les 30 derniers jours
+        // RÈGLE : Pas de tâche si aucune séance d'établissement trouvée pour ce client
         if (!lastSession) {
           return;
         }

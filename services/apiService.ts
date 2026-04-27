@@ -145,6 +145,14 @@ export const apiService = {
     return toCamel(data);
   },
 
+  async getById(table: string, id: string | number) {
+    const headers = getHeaders();
+    const response = await fetch(`${API_BASE_URL}/${table}/${id}`, { headers });
+    if (!response.ok) throw new Error(`Erreur lors de la récupération de l'élément ${id} de ${table}`);
+    const data = await response.json();
+    return toCamel(data);
+  },
+
   async create(table: string, data: any) {
     const headers = getHeaders();
     const response = await fetch(`${API_BASE_URL}/${table}`, {
@@ -298,37 +306,7 @@ export const apiService = {
 
   async bulkCreateSessions(sessions: any[]) {
     const headers = getHeaders();
-    const mappedSessions = sessions.map(s => ({
-      title: s.title,
-      type: s.type,
-      category: s.category,
-      date: s.date,
-      start_time: s.startTime,
-      duration: s.duration,
-      participant_ids: s.participantIds,
-      no_show_ids: s.noShowIds,
-      location: s.location,
-      notes: s.notes,
-      facilitator_name: s.facilitatorName,
-      facilitator_type: s.facilitatorType,
-      advisor_name: s.advisorName,
-      discussed_needs: s.discussedNeeds,
-      actions: s.actions,
-      contract_id: s.contractId,
-      individual_status: s.individualStatus,
-      needs_interpretation: s.needsInterpretation,
-      subjects_covered: s.subjectsCovered,
-      target_client_types: s.targetClientTypes,
-      activity_format: s.activityFormat,
-      language_used: s.languageUsed,
-      service_setting: s.serviceSetting,
-      provider_location: s.providerLocation,
-      support_services: s.supportServices,
-      programming_type: s.programmingType,
-      client_location_country: s.clientLocationCountry,
-      advisor_id: s.advisorId || s.created_by_id, // Map advisorId to the database column advisor_id
-      created_at: s.created_at || new Date().toISOString()
-    }));
+    const mappedSessions = toSnake(sessions);
 
     const response = await fetch(`${API_BASE_URL}/sessions/bulk`, {
       method: 'POST',
@@ -338,9 +316,7 @@ export const apiService = {
 
     const resData = await response.json();
     if (!response.ok) {
-      const error: any = new Error(resData.error || `Erreur lors de l'importation massive des séances`);
-      error.details = resData;
-      throw error;
+      throw new Error(resData.error || `Erreur lors de l'importation massive des séances`);
     }
     return resData;
   },

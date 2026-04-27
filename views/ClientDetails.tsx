@@ -4,7 +4,7 @@ import { Client, ReferralStatus, Mentor, Partner, Session, UserRole, Note, Profi
 import { STATUS_COLORS, MOCK_CLIENTS, MOCK_SESSIONS, SESSION_TYPE_LABELS } from '../constants';
 import { getPeerMatches, generateClientSynthesis } from '../services/geminiService';
 import ConfirmModal from '../components/ConfirmModal';
-import { Plane, ArrowLeft, Send, FileText, Info, Zap, CheckCircle2, RefreshCw, Share2, Calendar, History, Clock, Globe, Archive, MessageSquare, HeartHandshake, MapPin, Briefcase, ChevronRight, Sparkles, Loader2, Phone, Mail, Tag, X, UserX, AlertCircle, Building2, User, Fingerprint, FileCheck, ShieldCheck, Database, Cpu, Star, Activity, UserCheck, ChevronDown, ArrowRight, Check, Filter, Target, Users, Trash2 } from 'lucide-react';
+import { Edit2, Save, Plane, ArrowLeft, Send, FileText, Info, Zap, CheckCircle2, RefreshCw, Share2, Calendar, History, Clock, Globe, Archive, MessageSquare, HeartHandshake, MapPin, Briefcase, ChevronRight, Sparkles, Loader2, Phone, Mail, Tag, X, UserX, AlertCircle, Building2, User, Fingerprint, FileCheck, ShieldCheck, Database, Cpu, Star, Activity, UserCheck, ChevronDown, ArrowRight, Check, Filter, Target, Users, Trash2 } from 'lucide-react';
 
 interface ClientDetailsProps {
   client: Client;
@@ -40,12 +40,60 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   allLogs = [],
   onDeleteClient
 }) => {
-  const DataField = ({ label, value }: { label: string, value?: string | null }) => (
-    <div className="flex flex-col gap-0.5">
-      <p className="text-[11px] font-black text-slate-400 uppercase tracking-tight">{label}</p>
-      <p className="text-sm font-bold text-slate-800 break-words leading-tight">{value || '---'}</p>
-    </div>
-  );
+  const DataField = ({ label, value, field, type = "text" }: { label: string, value?: any, field?: keyof Client, type?: string }) => {
+    const isRestricted = activeRole === UserRole.ADVISOR && field && !isArrivalField(field);
+
+    if (isEditing && field) {
+      return (
+        <div className="flex flex-col gap-0.5">
+          <label className="text-[11px] font-black text-slate-400 uppercase tracking-tight">{label}</label>
+          {type === 'textarea' ? (
+            <textarea 
+              value={tempClient[field] || ''}
+              disabled={isRestricted}
+              onChange={(e) => handleEditChange(field, e.target.value)}
+              rows={2}
+              className={`text-sm font-bold border rounded px-2 py-1 outline-none transition-all resize-none ${
+                isRestricted 
+                  ? 'bg-slate-50 text-slate-400 border-slate-100 cursor-not-allowed' 
+                  : 'bg-white text-slate-800 border-slate-200 focus:border-blue-500 ring-2 ring-transparent focus:ring-blue-50'
+              }`}
+            />
+          ) : (
+            <input 
+              type={type}
+              value={tempClient[field] || ''}
+              disabled={isRestricted}
+              onChange={(e) => handleEditChange(field, e.target.value)}
+              className={`text-sm font-bold border rounded px-2 py-1 h-8 outline-none transition-all ${
+                isRestricted 
+                  ? 'bg-slate-50 text-slate-400 border-slate-100 cursor-not-allowed' 
+                  : 'bg-white text-slate-800 border-slate-200 focus:border-blue-500 ring-2 ring-transparent focus:ring-blue-50'
+              }`}
+            />
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col gap-0.5 group relative">
+        <div className="flex items-center gap-2">
+          <p className="text-[11px] font-black text-slate-400 uppercase tracking-tight">{label}</p>
+          {field && !isRestricted && (
+            <button 
+              onClick={() => setIsEditing(true)}
+              className="opacity-0 group-hover:opacity-100 p-1 -m-1 text-slate-300 hover:text-blue-600 transition-all"
+              title="Modifier"
+            >
+              <Edit2 size={10} />
+            </button>
+          )}
+        </div>
+        <p className="text-sm font-bold text-slate-800 break-words leading-tight">{value || '---'}</p>
+      </div>
+    );
+  };
 
   const [peerMatches, setPeerMatches] = useState<{ clientId: string; score: number; reason: string }[]>([]);
   const [synthesis, setSynthesis] = useState<string | null>(null);
@@ -62,6 +110,28 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isUpdatingAttendance, setIsUpdatingAttendance] = useState<string | null>(null);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [tempClient, setTempClient] = useState<Client>({ ...client });
+
+  const isArrivalField = (field: keyof Client) => {
+    return [
+      'arrivalDate', 
+      'destinationCity', 
+      'chosenCity', 
+      'arrivalDateApprox', 
+      'arrivalDateConfirmed',
+      'destinationChange'
+    ].includes(field as string);
+  };
+
+  const handleEditChange = (field: keyof Client, value: any) => {
+    // Basic number conversion for fields that expect it
+    let finalValue = value;
+    if (field === 'childrenCount' && value !== '') {
+      finalValue = parseInt(value, 10);
+    }
+    setTempClient(prev => ({ ...prev, [field]: finalValue }));
+  };
 
 
   // Historique unifié (Timeline)
@@ -124,7 +194,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
         title: `SÉANCE : ${s.title}`, 
         content: `${isAbsent ? 'Absent' : 'Présent'} - ${s.type}${s.notes ? ` : ${s.notes}` : ''}`, 
         author: s.facilitatorName || 'Inconnu', 
-        timestamp: `${s.date}T${s.startTime}:00Z` 
+        timestamp: `${s.date}T${s.startTime || '00:00'}:00` 
       });
     });
 
@@ -362,17 +432,35 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   }, [allSessions, client.id]);
 
   const stats = useMemo(() => {
-    if (clientSessions.length === 0) return { rate: 100, total: 0 };
+    const todayStr = new Date().toISOString().split('T')[0];
+    const pastSessions = clientSessions.filter(s => s.date <= todayStr);
     
-    const attendedSessions = clientSessions.filter(s => {
+    if (pastSessions.length === 0) return { rate: 100, total: 0 };
+    
+    let attendedCount = 0;
+    let relevantTotalCount = 0;
+
+    pastSessions.forEach(s => {
       if (s.category === SessionCategory.INDIVIDUAL) {
-        return s.individualStatus === AttendanceStatus.PRESENT;
+        if (s.individualStatus === AttendanceStatus.CANCELLED || s.individualStatus === AttendanceStatus.DECALEE) {
+          return;
+        }
+        relevantTotalCount++;
+        const isPresent = s.individualStatus === AttendanceStatus.PRESENT
+          || (s.individualStatus == null && !s.noShowIds?.includes(client.id));
+        if (isPresent) attendedCount++;
+      } else {
+        relevantTotalCount++;
+        if (!s.noShowIds?.includes(client.id)) {
+          attendedCount++;
+        }
       }
-      return !s.noShowIds?.includes(client.id);
     });
+
+    if (relevantTotalCount === 0) return { rate: 100, total: 0 };
     
-    const rate = Math.round((attendedSessions.length / clientSessions.length) * 100);
-    return { rate, total: clientSessions.length };
+    const rate = Math.round((attendedCount / relevantTotalCount) * 100);
+    return { rate, total: relevantTotalCount };
   }, [clientSessions, client.id]);
 
   const getReliabilityUI = (rate: number) => {
@@ -420,15 +508,46 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
             {client.isUnsubscribed ? 'Se réabonner' : 'Se désabonner'}
           </button>
 
+          <div className="flex items-center gap-2">
+            {!isEditing ? (
+              <>
+                {activeRole === UserRole.ADMIN && onDeleteClient && (
+                  <button 
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="p-2 text-red-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                    title="Supprimer le client"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                <button 
+                  onClick={() => {
+                    setIsEditing(false);
+                    setTempClient({ ...client });
+                  }}
+                  className="px-3 py-1.5 text-slate-500 font-black uppercase text-[10px] tracking-widest hover:text-slate-700 transition-all"
+                >
+                  Annuler
+                </button>
+                <button 
+                  onClick={() => {
+                    onUpdate(tempClient);
+                    setIsEditing(false);
+                  }}
+                  className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 text-white rounded-lg font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
+                >
+                  <Save size={12} /> Enregistrer
+                </button>
+              </>
+            )}
+          </div>
+
           {activeRole !== UserRole.MENTOR && client.status !== ReferralStatus.CLOSED && (
              <button onClick={() => setShowCloseConfirm(true)} className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-xl text-xs font-black uppercase tracking-widest border border-red-100 transition-all shadow-sm">
                <Archive size={14} /> Clôturer définitivement
-             </button>
-          )}
-
-          {activeRole === UserRole.ADMIN && onDeleteClient && (
-             <button onClick={() => setShowDeleteConfirm(true)} className="flex items-center gap-2 px-4 py-2 bg-white text-red-600 border border-red-200 hover:bg-red-50 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm">
-               <Trash2 size={14} /> Supprimer le client
              </button>
           )}
         </div>
@@ -490,20 +609,41 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
             </div>
 
             {/* Date d'arrivée & Compte à rebours */}
-            <div className="mb-6 flex items-center gap-3 p-3 bg-slate-50/80 rounded-2xl border border-slate-100/50">
+            <div className="mb-6 flex items-center gap-3 p-3 bg-slate-50/80 rounded-2xl border border-slate-100/50 group relative">
               <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center text-blue-600 shadow-sm border border-slate-100">
                 <Plane size={14} />
               </div>
               <div className="flex-1">
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Date d'arrivée prévue</p>
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">Date d'arrivée prévue</p>
+                  {!isEditing && (
+                    <button 
+                      onClick={() => setIsEditing(true)}
+                      className="opacity-0 group-hover:opacity-100 p-1 -m-1 text-slate-300 hover:text-blue-600 transition-all"
+                      title="Modifier"
+                    >
+                      <Edit2 size={10} />
+                    </button>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
-                  <p className="text-sm font-black text-slate-700">
-                    {client.arrivalDateConfirmed || client.arrivalDate || client.arrivalDateApprox || 'Non renseignée'}
-                  </p>
+                  {isEditing ? (
+                    <input 
+                      type="date"
+                      value={tempClient.arrivalDateConfirmed || tempClient.arrivalDate || ''}
+                      onChange={(e) => handleEditChange('arrivalDateConfirmed', e.target.value)}
+                      className="text-sm font-bold bg-white text-slate-800 border border-slate-200 rounded px-2 py-0.5 outline-none focus:border-blue-500 ring-2 ring-transparent focus:ring-blue-50 h-7"
+                    />
+                  ) : (
+                    <p className="text-sm font-black text-slate-700">
+                      {tempClient.arrivalDateConfirmed || tempClient.arrivalDate || tempClient.arrivalDateApprox || 'Non renseignée'}
+                    </p>
+                  )}
                   {(() => {
-                    const dateStr = client.arrivalDateConfirmed || client.arrivalDate;
+                    const dateStr = tempClient.arrivalDateConfirmed || tempClient.arrivalDate;
                     if (!dateStr) return null;
-                    const arrival = new Date(dateStr);
+                    // Utilisation de midi pour éviter le décalage de fuseau horaire lors du calcul relatif
+                    const arrival = new Date(dateStr + 'T12:00:00');
                     if (isNaN(arrival.getTime())) return null;
                     
                     const today = new Date();
@@ -565,29 +705,25 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                 <div className="flex items-center gap-3 p-1.5 hover:bg-slate-50 rounded-xl transition-colors">
                    <div className="p-2 bg-blue-50 text-blue-500 rounded-lg"><Mail size={14}/></div>
                    <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-black text-slate-400 uppercase tracking-tight">Email</p>
-                      <p className="text-sm font-bold text-slate-800 truncate leading-tight">{client.email}</p>
+                      <DataField label="Email" value={client.email} field="email" type="email" />
                    </div>
                 </div>
                 <div className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl transition-colors">
                    <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><Globe size={14}/></div>
                    <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-black text-slate-400 uppercase tracking-tight">Pays d'Origine</p>
-                      <p className="text-sm font-bold text-slate-800 truncate leading-tight">{client.originCountry}</p>
+                      <DataField label="Pays d'Origine" value={client.originCountry} field="originCountry" />
                    </div>
                 </div>
                 <div className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl transition-colors">
                    <div className="p-2 bg-purple-50 text-purple-600 rounded-lg"><Briefcase size={14}/></div>
                    <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-black text-slate-400 uppercase tracking-tight">Profession</p>
-                      <p className="text-sm font-bold text-slate-800 truncate leading-tight">{client.profession}</p>
+                      <DataField label="Profession" value={client.profession} field="profession" />
                    </div>
                 </div>
                 <div className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl transition-colors">
                    <div className="p-2 bg-amber-50 text-amber-600 rounded-lg"><MapPin size={14}/></div>
                    <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-black text-slate-400 uppercase tracking-tight">Ville</p>
-                      <p className="text-sm font-bold text-slate-800 truncate leading-tight">{client.destinationCity}</p>
+                      <DataField label="Ville" value={client.destinationCity} field="destinationCity" />
                    </div>
                 </div>
              </div>
@@ -671,10 +807,10 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                         <Clock className="text-blue-500" size={14} /> Chronologie du Dossier
                       </h4>
                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                        <DataField label="Inscription CF" value={client.registrationDate} />
-                        <DataField label="Réf. vers Arrivio" value={client.inboundReferralDate} />
-                        <DataField label="Transfert Partenaire" value={client.referralDate} />
-                        <DataField label="Source" value={client.referralSource} />
+                        <DataField label="Inscription CF" value={client.registrationDate} field="registrationDate" type="date" />
+                        <DataField label="Réf. vers Arrivio" value={client.inboundReferralDate} field="inboundReferralDate" type="date" />
+                        <DataField label="Transfert Partenaire" value={client.referralDate} field="referralDate" type="date" />
+                        <DataField label="Source" value={client.referralSource} field="referralSource" />
                       </div>
                     </div>
                     {/* Section Identité */}
@@ -683,14 +819,14 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                         <User className="text-blue-500" size={16} /> Identité & Contact
                       </h4>
                       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                        <DataField label="Prénom" value={client.firstName} />
-                        <DataField label="Nom" value={client.lastName} />
-                        <DataField label="Genre" value={client.gender} />
-                        <DataField label="Date de Naissance" value={client.birthDate} />
-                        <DataField label="Email" value={client.email} />
-                        <DataField label="Téléphone" value={client.phoneNumber} />
-                        <DataField label="Pays de Résidence" value={client.residenceCountry} />
-                        <DataField label="#IUC ou #CRP" value={client.iucCrpNumber} />
+                        <DataField label="Prénom" value={client.firstName} field="firstName" />
+                        <DataField label="Nom" value={client.lastName} field="lastName" />
+                        <DataField label="Genre" value={client.gender} field="gender" />
+                        <DataField label="Date de Naissance" value={client.birthDate} field="birthDate" type="date" />
+                        <DataField label="Email" value={client.email} field="email" type="email" />
+                        <DataField label="Téléphone" value={client.phoneNumber} field="phoneNumber" type="tel" />
+                        <DataField label="Pays de Résidence" value={client.residenceCountry} field="residenceCountry" />
+                        <DataField label="#IUC ou #CRP" value={client.iucCrpNumber} field="iucCrpNumber" />
                       </div>
                     </div>
 
@@ -700,13 +836,13 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                         <HeartHandshake className="text-pink-500" size={16} /> Famille & Entourage
                       </h4>
                       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                        <DataField label="Type d'Immigration" value={client.immigrationType} />
-                        <DataField label="Requérant Principal" value={client.mainApplicant} />
+                        <DataField label="Type d'Immigration" value={client.immigrationType} field="immigrationType" />
+                        <DataField label="Requérant Principal" value={client.mainApplicant} field="mainApplicant" />
                         <div className="col-span-2 h-px bg-slate-100 my-2" />
-                        <DataField label="Conjoint(e) - Nom" value={client.spouseFullName} />
-                        <DataField label="Conjoint(e) - Email" value={client.spouseEmail} />
+                        <DataField label="Conjoint(e) - Nom" value={client.spouseFullName} field="spouseFullName" />
+                        <DataField label="Conjoint(e) - Email" value={client.spouseEmail} field="spouseEmail" type="email" />
                         <div className="col-span-2 h-px bg-slate-100 my-2" />
-                        <DataField label="Nombre d'enfants" value={client.childrenCount?.toString()} />
+                        <DataField label="Nombre d'enfants" value={client.childrenCount?.toString()} field="childrenCount" type="number" />
                       </div>
                     </div>
 
@@ -716,14 +852,14 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                         <MapPin className="text-amber-500" size={16} /> Projet Ontario
                       </h4>
                       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                        <DataField label="Prog. Immigration" value={client.participatedImmigrationProgram} />
-                        <DataField label="Province Choisie" value={client.chosenProvince} />
-                        <DataField label="Ville Choisie" value={client.chosenCity} />
-                        <DataField label="Changement Destination" value={client.destinationChange} />
-                        <DataField label="Arrivée - Approx" value={client.arrivalDateApprox} />
-                        <DataField label="Arrivée - Confirmée" value={client.arrivalDateConfirmed} />
+                        <DataField label="Prog. Immigration" value={client.participatedImmigrationProgram} field="participatedImmigrationProgram" />
+                        <DataField label="Province Choisie" value={client.chosenProvince} field="chosenProvince" />
+                        <DataField label="Ville Choisie" value={client.chosenCity} field="chosenCity" />
+                        <DataField label="Changement Destination" value={client.destinationChange} field="destinationChange" />
+                        <DataField label="Arrivée - Approx" value={client.arrivalDateApprox} field="arrivalDateApprox" type="date" />
+                        <DataField label="Arrivée - Confirmée" value={client.arrivalDateConfirmed} field="arrivalDateConfirmed" type="date" />
                         <div className="col-span-2">
-                          <DataField label="Raison du choix de lieu" value={client.establishmentReason} />
+                          <DataField label="Raison du choix de lieu" value={client.establishmentReason} field="establishmentReason" type="textarea" />
                         </div>
                       </div>
                     </div>
@@ -734,15 +870,15 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                         <Briefcase className="text-purple-500" size={16} /> Situation Professionnelle
                       </h4>
                       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                         <DataField label="Emploi Actuel" value={client.currentJob} />
-                         <DataField label="Situation Actuelle" value={client.currentEmploymentStatus} />
-                         <DataField label="Groupe NOC" value={client.currentNocGroup} />
-                         <DataField label="Profession Actuelle" value={client.currentProfessionGroup} />
+                         <DataField label="Emploi Actuel" value={client.currentJob} field="currentJob" />
+                         <DataField label="Situation Actuelle" value={client.currentEmploymentStatus} field="currentEmploymentStatus" />
+                         <DataField label="Groupe NOC" value={client.currentNocGroup} field="currentNocGroup" />
+                         <DataField label="Profession Actuelle" value={client.currentProfessionGroup} field="currentProfessionGroup" />
                          <div className="col-span-2 h-px bg-slate-100 my-2" />
-                         <DataField label="Situation Visée (CA)" value={client.intendedEmploymentStatusCanada} />
-                         <DataField label="Profession Visée (CA)" value={client.intendedProfessionGroupCanada} />
+                         <DataField label="Situation Visée (CA)" value={client.intendedEmploymentStatusCanada} field="intendedEmploymentStatusCanada" />
+                         <DataField label="Profession Visée (CA)" value={client.intendedProfessionGroupCanada} field="intendedProfessionGroupCanada" />
                          <div className="col-span-2">
-                            <DataField label="Reconnaissance Compétences" value={client.intentionCredentialsRecognition} />
+                            <DataField label="Reconnaissance Compétences" value={client.intentionCredentialsRecognition} field="intentionCredentialsRecognition" type="textarea" />
                          </div>
                       </div>
                     </div>
@@ -754,20 +890,20 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                       </h4>
                       <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
                         <div className="space-y-6">
-                          <DataField label="Niveau Éducation" value={client.educationLevel} />
-                          <DataField label="Spécialisation" value={client.specialization} />
+                          <DataField label="Niveau Éducation" value={client.educationLevel} field="educationLevel" />
+                          <DataField label="Spécialisation" value={client.specialization} field="specialization" />
                         </div>
                         <div className="space-y-6">
-                          <DataField label="Niveau Anglais" value={client.englishLevel} />
-                          <DataField label="Infos Anglais Souhaitées" value={client.wantEnglishInfo} />
+                          <DataField label="Niveau Anglais" value={client.englishLevel} field="englishLevel" />
+                          <DataField label="Infos Anglais Souhaitées" value={client.wantEnglishInfo} field="wantEnglishInfo" />
                         </div>
                         <div className="space-y-6">
-                          <DataField label="Niveau Français" value={client.frenchLevel} />
-                          <DataField label="Infos Français Souhaitées" value={client.wantFrenchInfo} />
+                          <DataField label="Niveau Français" value={client.frenchLevel} field="frenchLevel" />
+                          <DataField label="Infos Français Souhaitées" value={client.wantFrenchInfo} field="wantFrenchInfo" />
                         </div>
                         <div className="space-y-6 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                          <DataField label="Source Référencement" value={client.referralSource} />
-                          <DataField label="Consentement Marketing" value={client.marketingConsent} />
+                          <DataField label="Source Référencement" value={client.referralSource} field="referralSource" />
+                          <DataField label="Consentement Marketing" value={client.marketingConsent} field="marketingConsent" />
                         </div>
                       </div>
                     </div>
@@ -1009,7 +1145,33 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                   {clientSessions.length > 0 ? (
                     <div className="grid grid-cols-1 gap-4">
                       {clientSessions.map(session => {
-                        const isAbsent = session.noShowIds.includes(client.id);
+                        const getStatusUI = () => {
+                          if (session.category === SessionCategory.INDIVIDUAL) {
+                            switch(session.individualStatus) {
+                              case AttendanceStatus.PRESENT: return { label: 'Présent', colorStyle: 'bg-emerald-50 text-emerald-600 border-emerald-100', icon: <UserCheck size={24} />, iconColor: 'text-emerald-500' };
+                              case AttendanceStatus.ABSENT: return { label: 'Absent', colorStyle: 'bg-red-50 text-red-600 border-red-100', icon: <UserX size={24} />, iconColor: 'text-red-500' };
+                              case AttendanceStatus.CANCELLED: return { label: 'Annulé', colorStyle: 'bg-slate-50 text-slate-400 border-slate-100', icon: <UserCheck size={24} />, iconColor: 'text-slate-400' };
+                              case AttendanceStatus.DECALEE: return { label: 'Décalé', colorStyle: 'bg-amber-50 text-amber-600 border-amber-100', icon: <UserCheck size={24} />, iconColor: 'text-amber-600' };
+                              default: {
+                                // Fallback: individualStatus is null, use noShowIds
+                                const isNoShow = session.noShowIds?.includes(client.id);
+                                return isNoShow
+                                  ? { label: 'Absent', colorStyle: 'bg-red-50 text-red-600 border-red-100', icon: <UserX size={24} />, iconColor: 'text-red-500' }
+                                  : { label: 'Présent', colorStyle: 'bg-emerald-50 text-emerald-600 border-emerald-100', icon: <UserCheck size={24} />, iconColor: 'text-emerald-500' };
+                              }
+                            }
+                          }
+                          const isNoShow = session.noShowIds?.includes(client.id);
+                          return isNoShow 
+                            ? { label: 'Absent', colorStyle: 'bg-red-50 text-red-600 border-red-100', icon: <UserX size={24} />, iconColor: 'text-red-500' }
+                            : { label: 'Présent', colorStyle: 'bg-emerald-50 text-emerald-600 border-emerald-100', icon: <UserCheck size={24} />, iconColor: 'text-emerald-500' };
+                        };
+
+                        const statusUI = getStatusUI();
+                        const isAbsent = session.category === SessionCategory.INDIVIDUAL 
+                          ? (session.individualStatus === AttendanceStatus.ABSENT || (session.individualStatus == null && session.noShowIds?.includes(client.id)))
+                          : session.noShowIds?.includes(client.id);
+
                         return (
                           <div key={session.id} className="overflow-hidden bg-slate-50 border border-slate-100 rounded-3xl hover:bg-white hover:shadow-md transition-all group">
                             <div 
@@ -1017,14 +1179,18 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                               className={`p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${session.category !== SessionCategory.GROUP ? 'cursor-pointer' : 'cursor-default'}`}
                             >
                               <div className="flex items-center gap-4">
-                                <div className={`w-12 h-12 bg-white rounded-2xl border border-slate-100 flex items-center justify-center ${session.category === SessionCategory.GROUP ? 'text-purple-500' : (isAbsent ? 'text-red-500' : 'text-emerald-500')} group-hover:bg-slate-900 group-hover:text-white transition-colors shadow-sm`}>
-                                  {session.category === SessionCategory.GROUP ? <Users size={24} /> : (isAbsent ? <UserX size={24} /> : <UserCheck size={24} />)}
+                                <div className={`w-12 h-12 bg-white rounded-2xl border border-slate-100 flex items-center justify-center ${session.category === SessionCategory.GROUP ? 'text-purple-500' : statusUI.iconColor} group-hover:bg-slate-900 group-hover:text-white transition-colors shadow-sm`}>
+                                  {session.category === SessionCategory.GROUP ? <Users size={24} /> : statusUI.icon}
                                 </div>
                                 <div>
                                   <h4 className="text-sm font-black text-slate-800">{session.title}</h4>
                                   <div className="flex flex-wrap gap-3 mt-1.5">
                                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-                                      <Clock size={11} /> {new Date(session.date).toLocaleDateString()} @ {session.startTime}
+                                      <Clock size={11} /> {(() => {
+                                        if (!session.date) return '---';
+                                        const [y, m, d] = session.date.split('-').map(Number);
+                                        return new Date(y, m - 1, d).toLocaleDateString('fr-FR');
+                                      })()} @ {session.startTime}
                                     </span>
                                     <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border flex items-center gap-1.5 ${session.category === SessionCategory.GROUP ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
                                       {session.category === SessionCategory.GROUP ? <Users size={11} /> : <User size={11} />}
@@ -1042,11 +1208,9 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                                         )}
                                       </span>
                                     )}
-                                    {session.category !== SessionCategory.GROUP && (
-                                      <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${isAbsent ? 'bg-red-50 text-red-600 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
-                                        {isAbsent ? 'Absent' : 'Présent'}
-                                      </span>
-                                    )}
+                                    <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${statusUI.colorStyle}`}>
+                                      {statusUI.label}
+                                    </span>
                                   </div>
                                 </div>
                               </div>
@@ -1144,8 +1308,24 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                                )}
                             </div>
                             <div className="text-right shrink-0">
-                               <p className="text-[10px] font-bold text-slate-900">{new Date(item.timestamp).toLocaleDateString('fr-FR')}</p>
-                               <p className="text-[9px] text-slate-400 font-medium">{new Date(item.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p>
+                               <p className="text-[10px] font-bold text-slate-900">
+                                 {(() => {
+                                   if (!item.timestamp) return '---';
+                                   const d = new Date(item.timestamp);
+                                   // Si c'est une date seule YYYY-MM-DD, on s'assure qu'elle reste locale pour éviter le décalage
+                                   if (typeof item.timestamp === 'string' && item.timestamp.length === 10) {
+                                      const [y, m, day] = item.timestamp.split('-').map(Number);
+                                      return new Date(y, m - 1, day).toLocaleDateString('fr-FR');
+                                   }
+                                   return d.toLocaleDateString('fr-FR');
+                                 })()}
+                               </p>
+                               <p className="text-[9px] text-slate-400 font-medium">
+                                 {item.timestamp?.includes('T') 
+                                   ? new Date(item.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+                                   : '...'
+                                 }
+                               </p>
                             </div>
                           </div>
                           <div className="flex items-center gap-2 pt-3 border-t border-slate-100">

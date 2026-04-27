@@ -204,3 +204,53 @@ export const IRCC_COUNTRIES = [
   "Yougoslavie", "Zambie", "Zimbabwe"
 ]; // 295 items derived from Pays.xlsx
 
+// --- EMPLOYMENT SLE CONSTANTS ---
+export const EMPLOYMENT_STATUS_CANADA = [
+  "Sans emploi présentement",
+  "A démarré une entreprise / travailleur indépendant",
+  "Employé au Canada, dans sa profession",
+  "Employé au Canada, mais pas dans sa profession"
+];
+
+export const EMPLOYMENT_STATUS_OUTSIDE = [
+  "N'a pas d'offre d'emploi au Canada",
+  "A démarré sa propre entreprise/devenir travailleur autonome au Canada",
+  "A un offre d'emploi au Canada, dans sa profession",
+  "A un offre d'emploi au Canada, mais pas dans sa profession"
+];
+
+export const EMPLOYMENT_TARGET_TYPES = [
+  "Populations ciblées",
+  "Sectoriel"
+];
+
+export const EMPLOYMENT_SECTORS = [
+  "Couloir pour les enseignants de français au Canada",
+  "Éducation",
+  "Santé",
+  "Science, Technologie, Ingénierie et Mathématiques (STIM)",
+  "Métier",
+  "Transport"
+];
+
+export const EMPLOYMENT_TOPICS = [
+  { label: "Planification de carrière, navigation et compétences en recherche d'emploi", field: 'employmentTopicCareerPlanningInd' },
+  { label: "Informations sur le marché du travail", field: 'employmentTopicLabourMarketInd' },
+  { label: "Préparation à une profession réglementée", field: 'employmentTopicRegulatedProfessionInd' },
+  { label: "Préparation à l'entrepreneuriat", field: 'employmentTopicEntrepreneurshipInd' },
+  { label: "Préparation à une profession non réglementée", field: 'employmentTopicUnregulatedProfessionInd' },
+  { label: "Compétences pour réussir", field: 'employmentTopicSkillsInd' },
+  { label: "Orientation en milieu de travail et/ou Santé et Sécurité", field: 'employmentTopicWorkplaceOrientationInd' }
+];
+
+export const EMPLOYMENT_REFERRALS = [
+  { label: "Établissement d’enseignement et de formation", field: 'employmentRefEducationTrainingInd' },
+  { label: "Organisme d’évaluation des diplômes d’études", field: 'employmentRefCredentialEvaluationInd' },
+  { label: "Employeur", field: 'employmentRefEmployerInd' },
+  { label: "Formation linguistique liée à l’emploi", field: 'employmentRefLanguageTrainingInd' },
+  { label: "Évaluation linguistique", field: 'employmentRefLanguageAssessmentInd' },
+  { label: "Autres services d’emploi financés par le gouvernement fédéral (p. ex., EDSC)", field: 'employmentRefOtherFederalInd' },
+  { label: "Organisme professionnel ou de réglementation", field: 'employmentRefProfessionalBodyInd' },
+  { label: "Services d’emploi des gouvernements provinciaux ou territoriaux", field: 'employmentRefProvincialServicesInd' }
+];
+

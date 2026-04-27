@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { Session, SessionType, SessionCategory, Client, FacilitatorType, AttendanceStatus, Partner, PartnerType, Contract, UserRole, Profile } from '../types';
 import { SESSION_TYPE_LABELS, SESSION_CATEGORY_LABELS, ATTENDANCE_STATUS_LABELS } from '../constants';
 import { apiService } from '../services/apiService';
+import { exportSEBAAReport } from '../services/exportSEBAA';
 import ConfirmModal from '../components/ConfirmModal';
 import Pagination from '../components/Pagination';
 import SessionModal from '../components/SessionModal';
@@ -121,6 +122,16 @@ const SessionList: React.FC<SessionListProps> = ({
 
   const [showModal, setShowModal] = useState<'individual' | 'group' | null>(null);
   const [viewingSession, setViewingSession] = useState<Session | null>(null);
+  
+  // Synchronisation des données consultées lors des mises à jour globales
+  useEffect(() => {
+    if (viewingSession) {
+      const updated = sessions.find(s => s.id === viewingSession.id);
+      if (updated) {
+        setViewingSession(updated);
+      }
+    }
+  }, [sessions, viewingSession?.id]);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
 
@@ -222,19 +233,36 @@ const SessionList: React.FC<SessionListProps> = ({
   };
 
   const getAttendanceStats = (clientId: string) => {
-    const clientSessions = sessions.filter(s => s.participantIds?.includes(clientId));
+    const todayStr = new Date().toISOString().split('T')[0];
+    const clientSessions = sessions.filter(s => s.participantIds?.includes(clientId) && s.date <= todayStr);
+    
     if (clientSessions.length === 0) return null;
     
-    const attendedSessions = clientSessions.filter(s => {
+    let attendedCount = 0;
+    let relevantTotalCount = 0;
+
+    clientSessions.forEach(s => {
       if (s.category === SessionCategory.INDIVIDUAL) {
-        return s.individualStatus === AttendanceStatus.PRESENT;
+        if (s.individualStatus === AttendanceStatus.CANCELLED || s.individualStatus === AttendanceStatus.DECALEE) {
+          return;
+        }
+        relevantTotalCount++;
+        const isPresent = s.individualStatus === AttendanceStatus.PRESENT
+          || (s.individualStatus == null && !s.noShowIds?.includes(clientId));
+        if (isPresent) attendedCount++;
+      } else {
+        relevantTotalCount++;
+        if (!s.noShowIds?.includes(clientId)) {
+          attendedCount++;
+        }
       }
-      return !s.noShowIds?.includes(clientId);
     });
+
+    if (relevantTotalCount === 0) return null;
     
     return {
-      rate: Math.round((attendedSessions.length / clientSessions.length) * 100),
-      total: clientSessions.length
+      rate: Math.round((attendedCount / relevantTotalCount) * 100),
+      total: relevantTotalCount
     };
   };
 
@@ -707,6 +735,25 @@ const SessionList: React.FC<SessionListProps> = ({
                 <FileText size={14} /> Modèle Webinaire
               </button>
             )}
+
+            {activeCategory === SessionCategory.INDIVIDUAL && (
+              <button
+                onClick={async () => {
+                  const btn = document.getElementById('btn-export-sebaa');
+                  if (btn) { btn.setAttribute('disabled', 'true'); btn.textContent = 'Export en cours...'; }
+                  try {
+                    await exportSEBAAReport(sessions, clients);
+                  } finally {
+                    if (btn) { btn.removeAttribute('disabled'); btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg> Export SÉBAA'; }
+                  }
+                }}
+                id="btn-export-sebaa"
+                className="slds-button slds-button-neutral !px-4 !py-2 flex items-center gap-2 text-sky-600 border-sky-200 hover:bg-sky-50"
+                title="Exporter les évaluations SÉBAA au format Excel IRCC VER 1335"
+              >
+                <ClipboardList size={14} /> Export SÉBAA
+              </button>
+            )}
             <button 
               onClick={() => setShowModal(activeCategory === SessionCategory.INDIVIDUAL ? 'individual' : 'group')}
               className="slds-button slds-button-brand !px-4 !py-2 w-full lg:w-auto"
@@ -999,51 +1046,85 @@ const SessionList: React.FC<SessionListProps> = ({
                        </p>
                        <p className="text-[10px] font-bold text-slds-text-primary uppercase tracking-widest">{viewingSession.individualStatus || 'NON RENSEIGNÉ'}</p>
                     </div>
-                    {viewingSession.discussedNeeds && (
-                      <div className="p-3 bg-slds-bg border border-slds-border rounded">
-                         <p className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-2 mb-2">
-                            <Target size={12} /> Besoins discutés
-                         </p>
-                         <p className="text-xs text-slds-text-primary leading-relaxed font-medium">{viewingSession.discussedNeeds}</p>
-                      </div>
-                    )}
-                    {viewingSession.actions && (
-                      <div className="p-3 bg-blue-50 border border-blue-100 rounded">
-                         <p className="text-[10px] font-bold text-slds-brand uppercase flex items-center gap-2 mb-2">
-                            <Activity size={12} /> Actions planifiées
-                         </p>
-                         <p className="text-xs text-slds-text-primary leading-relaxed font-medium">{viewingSession.actions}</p>
-                      </div>
-                    )}
+                    <div className="p-3 bg-slds-bg border border-slds-border rounded">
+                      <p className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-2 mb-2">
+                        <Target size={12} /> Besoins discutés
+                      </p>
+                      {viewingSession.discussedNeeds?.trim() ? (
+                        <p className="text-xs text-slds-text-primary leading-relaxed font-medium">{viewingSession.discussedNeeds}</p>
+                      ) : (
+                        <p className="text-xs text-slds-text-secondary italic">Non renseigné</p>
+                      )}
+                    </div>
+                    <div className="p-3 bg-blue-50 border border-blue-100 rounded">
+                      <p className="text-[10px] font-bold text-slds-brand uppercase flex items-center gap-2 mb-2">
+                        <Activity size={12} /> Actions planifiées
+                      </p>
+                      {viewingSession.actions?.trim() ? (
+                        <p className="text-xs text-slds-text-primary leading-relaxed font-medium">{viewingSession.actions}</p>
+                      ) : (
+                        <p className="text-xs text-slds-text-secondary italic">Non renseigné</p>
+                      )}
+                    </div>
                  </div>
                )}
 
                <div className="p-4 bg-slds-bg rounded border border-slds-border">
                   <p className="text-[10px] font-bold text-slds-text-secondary uppercase mb-3">Informations Complémentaires</p>
                   <div className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <MapPin size={16} className="text-slds-text-secondary" />
-                      <span className="text-xs font-bold text-slds-text-primary">{viewingSession.location || 'Lieu non spécifié'}</span>
-                    </div>
-                    {viewingSession.zoomLink && (
+                    {(() => {
+                      const link = viewingSession.zoomLink || (viewingSession as any).zoom_link;
+                      const id = viewingSession.zoomId || (viewingSession as any).zoom_id;
+                      
+                      if (link) {
+                        return (
+                          <>
+                            <div className="flex items-center gap-3">
+                              <Video size={16} className="text-slds-brand shrink-0" />
+                              <a href={link} target="_blank" className="text-xs font-bold text-slds-brand underline truncate">Lien de la rencontre</a>
+                            </div>
+                            {viewingSession.location && viewingSession.location.toLowerCase() !== 'virtuel' && (
+                              <div className="flex items-center gap-3">
+                                <MapPin size={16} className="text-slds-text-secondary shrink-0" />
+                                <span className="text-[10px] font-bold text-slds-text-secondary">{viewingSession.location}</span>
+                              </div>
+                            )}
+                          </>
+                        );
+                      }
+                      
+                      return (
+                        <div className="flex items-center gap-3">
+                          <MapPin size={16} className="text-slds-text-secondary shrink-0" />
+                          <span className="text-xs font-bold text-slds-text-primary">{viewingSession.location || 'Lieu non spécifié'}</span>
+                        </div>
+                      );
+                    })()}
+
+                    {(viewingSession.zoomId || (viewingSession as any).zoom_id) && (
                       <div className="flex items-center gap-3">
-                        <Video size={16} className="text-slds-brand" />
-                        <a href={viewingSession.zoomLink} target="_blank" className="text-xs font-bold text-slds-brand underline">Lien de la visioconférence</a>
+                        <div className="w-4 h-4 rounded-sm bg-slds-brand flex items-center justify-center shrink-0">
+                           <span className="text-[7px] font-black text-white px-0.5">ID</span>
+                        </div>
+                        <span className="text-xs font-bold text-slds-text-primary font-mono tracking-wider">{viewingSession.zoomId || (viewingSession as any).zoom_id}</span>
                       </div>
                     )}
+
                     <div className="flex items-center gap-3">
-                      <Languages size={16} className="text-slds-success" />
+                      <Languages size={16} className="text-slds-success shrink-0" />
                       <span className="text-xs font-bold text-slds-text-primary">{viewingSession.needsInterpretation ? 'Interprétation requise' : 'Français uniquement'}</span>
                     </div>
                   </div>
                </div>
 
-               {viewingSession.notes && (
-                 <div className="space-y-1">
-                   <p className="text-[10px] font-bold text-slds-text-secondary uppercase">Notes générales</p>
+               <div className="space-y-1 pt-2 border-t border-slds-border">
+                 <p className="text-[10px] font-bold text-slds-text-secondary uppercase">Notes générales</p>
+                 {viewingSession.notes?.trim() ? (
                    <p className="text-xs font-medium text-slds-text-secondary leading-relaxed italic">"{viewingSession.notes}"</p>
-                 </div>
-               )}
+                 ) : (
+                   <p className="text-xs text-slds-text-secondary italic">Aucune note</p>
+                 )}
+               </div>
             </div>
 
             <div className="p-4 bg-slds-bg border-t border-slds-border flex justify-end gap-3 shrink-0">
