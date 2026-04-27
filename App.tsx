@@ -486,10 +486,10 @@ const App: React.FC = () => {
 
   const handleAddSession = async (newSession: Session) => {
     try {
-      // Pass the full session object directly — toSnake() in apiService converts all camelCase keys
-      // to snake_case, and the backend sanitization filter keeps only known DB columns.
-      // This avoids fragile manual field filtering and ensures ALL SÉBAA/NAARS fields are transmitted.
-      await apiService.create('sessions', newSession);
+      // Destructure to omit the temporary client-side 'id' which is not a valid UUID.
+      // Supabase will generate a proper UUID automatically on insertion.
+      const { id, ...sessionData } = newSession;
+      await apiService.create('sessions', sessionData);
       await logActivity('CREATE', 'SESSION', `Nouvelle séance programmée : ${newSession.title}`);
       addNotification(NotificationType.SUCCESS, "Séance enregistrée", `La séance "${newSession.title}" est ajoutée au calendrier.`);
       fetchData();
