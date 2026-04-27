@@ -78,6 +78,15 @@ export interface Profile {
   createdAt?: string;
 }
 
+export type ContractSignatureStatus = 'PAS_ENCORE_SIGNE' | 'ATTENTE_DIRECTION' | 'ATTENTE_FOURNISSEUR' | 'SIGNE';
+
+export const CONTRACT_SIGNATURE_STATUS_LABELS: Record<ContractSignatureStatus, string> = {
+  PAS_ENCORE_SIGNE: 'Pas encore signé',
+  ATTENTE_DIRECTION: 'En attente de signature de la Direction',
+  ATTENTE_FOURNISSEUR: 'En attente de signature du fournisseur',
+  SIGNE: 'Signé'
+};
+
 export interface Contract {
   id: string;
   consultantName: string;
@@ -86,6 +95,7 @@ export interface Contract {
   startDate: string;
   endDate: string;
   status: 'ACTIVE' | 'EXPIRED' | 'COMPLETED';
+  signatureStatus?: ContractSignatureStatus;
   amount: number;
   serviceType?: string;
 }

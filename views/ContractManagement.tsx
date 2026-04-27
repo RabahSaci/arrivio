@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Contract, Session, SessionCategory, FacilitatorType, SessionType, Partner, PartnerType, UserRole } from '../types';
+import { Contract, Session, SessionCategory, FacilitatorType, SessionType, Partner, PartnerType, UserRole, ContractSignatureStatus, CONTRACT_SIGNATURE_STATUS_LABELS } from '../types';
 import { SESSION_TYPE_LABELS } from '../constants';
 import ConfirmModal from '../components/ConfirmModal';
 import { 
@@ -125,7 +125,8 @@ const ContractManagement: React.FC<ContractManagementProps> = ({
       endDate: formData.get('endDate') as string,
       status: formData.get('status') as any || 'ACTIVE',
       amount: parseFloat(formData.get('amount') as string) || 0,
-      serviceType: formData.get('serviceType') as string
+      serviceType: formData.get('serviceType') as string,
+      signatureStatus: formData.get('signatureStatus') as ContractSignatureStatus
     };
     if (editingContract) onUpdateContract({ ...editingContract, ...contractData as Contract });
     else onAddContract(contractData);
@@ -195,6 +196,15 @@ const ContractManagement: React.FC<ContractManagementProps> = ({
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-black text-slds-brand uppercase tracking-tighter truncate">{contract.consultantName}</p>
                       <h4 className="font-bold text-slate-900 truncate">Contrat #{contract.id.substring(0, 8)}</h4>
+                      {contract.signatureStatus && (
+                        <div className={`inline-flex items-center mt-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border ${
+                          contract.signatureStatus === 'SIGNE' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
+                          contract.signatureStatus === 'PAS_ENCORE_SIGNE' ? 'bg-slate-50 text-slate-400 border-slate-100' : 
+                          'bg-amber-50 text-amber-600 border-amber-100'
+                        }`}>
+                          {CONTRACT_SIGNATURE_STATUS_LABELS[contract.signatureStatus]}
+                        </div>
+                      )}
                     </div>
                     <div className="text-right">
                        <p className="text-lg font-black text-slate-900 leading-none">{contract.amount.toLocaleString()} $</p>
@@ -378,6 +388,14 @@ const ContractManagement: React.FC<ContractManagementProps> = ({
                 <div className="col-span-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Type Prestation</label>
                   <input name="serviceType" required defaultValue={editingContract?.serviceType || 'Webinaire'} className="slds-input" />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">État de signature</label>
+                  <select name="signatureStatus" defaultValue={editingContract?.signatureStatus || 'PAS_ENCORE_SIGNE'} className="slds-input">
+                    {Object.entries(CONTRACT_SIGNATURE_STATUS_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Début</label>
