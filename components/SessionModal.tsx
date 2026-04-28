@@ -121,6 +121,7 @@ interface SessionModalProps {
   currentUserId?: string;
   onSave: (session: Session) => void;
   onSelectClient?: (client: Client) => void;
+  initialParticipantIds?: string[];
 }
 
 const SessionModal: React.FC<SessionModalProps> = ({ 
@@ -138,7 +139,8 @@ const SessionModal: React.FC<SessionModalProps> = ({
   currentUserName,
   currentUserId,
   onSave,
-  onSelectClient
+  onSelectClient,
+  initialParticipantIds
 }) => {
   const isEditing = !!session;
   const [category, setCategory] = useState<SessionCategory>(session?.category || initialCategory);
@@ -227,8 +229,8 @@ const SessionModal: React.FC<SessionModalProps> = ({
         setFormFacilitatorType(FacilitatorType.CONSULTANT);
         setSelectedConsultantName('');
         setSelectedContractId('');
-        setModalParticipantIds([]);
-        setSelectedClient(null);
+        setModalParticipantIds(initialParticipantIds || []);
+        setSelectedClient(initialParticipantIds?.length ? (clients || []).find(c => c.id === initialParticipantIds[0]) || null : null);
         setAttendance(AttendanceStatus.PRESENT);
         setSelectedSubjects([]);
         setSelectedTargetClientTypes([]);
@@ -299,20 +301,44 @@ const SessionModal: React.FC<SessionModalProps> = ({
     }
 
     const type = formData.get('type') as SessionType;
+    const sessionDate = formData.get('date') as string;
+    const startTime = formData.get('startTime') as string;
 
-    // Validation IRCC (Etablissement Individuel)
-    if (category === SessionCategory.INDIVIDUAL && type === SessionType.ESTABLISHMENT) {
-      if (selectedSubjects.length === 0) {
-        alert("Veuillez sélectionner au moins un sujet abordé.");
+    // Validation globale obligatoire pour toutes les séances individuelles (Présent ou non)
+    if (category === SessionCategory.INDIVIDUAL) {
+      if (!sessionDate) {
+        alert("Veuillez sélectionner une date.");
         return;
       }
-      if (selectedTargetClientTypes.length > 3) {
-        alert("Vous ne pouvez pas sélectionner plus de 3 types de clients spécifiques.");
+      if (!startTime) {
+        alert("Veuillez sélectionner une heure de début.");
         return;
       }
-      if (selectedTargetClientTypes.length === 0) {
-        alert("Veuillez sélectionner au moins un type de client spécifique.");
+      if (!formDiscussedNeeds || formDiscussedNeeds.trim() === "") {
+        alert("Veuillez renseigner les besoins discutés.");
         return;
+      }
+      if (!formActions || formActions.trim() === "") {
+        alert("Veuillez renseigner les actions planifiées.");
+        return;
+      }
+    }
+
+    // Validation IRCC/SÉBAA complète uniquement si le client est PRÉSENT
+    if (category === SessionCategory.INDIVIDUAL && attendance === AttendanceStatus.PRESENT) {
+      if (type === SessionType.ESTABLISHMENT) {
+        if (selectedSubjects.length === 0) {
+          alert("Veuillez sélectionner au moins un sujet abordé.");
+          return;
+        }
+        if (selectedTargetClientTypes.length > 3) {
+          alert("Vous ne pouvez pas sélectionner plus de 3 types de clients spécifiques.");
+          return;
+        }
+        if (selectedTargetClientTypes.length === 0) {
+          alert("Veuillez sélectionner au moins un type de client spécifique.");
+          return;
+        }
       }
       
       // Validation SÉBAA if active
@@ -341,7 +367,6 @@ const SessionModal: React.FC<SessionModalProps> = ({
           alert("Veuillez sélectionner l'emplacement du client (Pays) dans le module Emploi.");
           return;
         }
-        // Format is shared with SEBAA fields or needs its own check if user wants
         if (!naarsData.formatInPersonInd && !naarsData.formatRemoteStaffInd && !naarsData.formatRemoteSelfInd && !naarsData.formatRemoteEmailTextPhoneInd) {
           alert("Veuillez sélectionner au moins un format de l'activité dans le module Emploi.");
           return;
@@ -350,7 +375,6 @@ const SessionModal: React.FC<SessionModalProps> = ({
     }
 
     // Validation : Pas de séances individuelles dans le futur pour les conseillers
-    const sessionDate = formData.get('date') as string;
     const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
     
     if (category === SessionCategory.INDIVIDUAL && sessionDate > today && activeRole === UserRole.ADVISOR) {
@@ -754,7 +778,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
 
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-1">
-                    <Target size={12} className="text-slds-brand" /> Besoins discutés
+                    <Target size={12} className="text-slds-brand" /> Besoins discutés <span className="text-slds-error ml-1">*</span>
                   </label>
                   <textarea 
                     value={formDiscussedNeeds}
@@ -766,7 +790,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
 
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-1">
-                    <Activity size={12} className="text-slds-success" /> Actions planifiées
+                    <Activity size={12} className="text-slds-success" /> Actions planifiées <span className="text-slds-error ml-1">*</span>
                   </label>
                   <textarea 
                     value={formActions}
@@ -794,7 +818,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
                     </div>
                   )}
                   <label className="text-[10px] font-bold text-slds-text-secondary uppercase">
-                    Emplacement du client : Pays <span className="text-slds-error">*</span>
+                    Emplacement du client : Pays {attendance === AttendanceStatus.PRESENT && <span className="text-slds-error ml-1">*</span>}
                   </label>
                   <select 
                     name="clientLocationCountry" 
@@ -817,7 +841,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <label className="text-[10px] font-bold text-slds-text-secondary uppercase">
-                      Sujet(s) abordés <span className="text-slds-error">*</span>
+                      Sujet(s) abordés {attendance === AttendanceStatus.PRESENT && <span className="text-slds-error ml-1">*</span>}
                     </label>
                     <span className="text-[8px] font-bold text-slds-text-secondary">MIN 1</span>
                   </div>
@@ -843,7 +867,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <label className="text-[10px] font-bold text-slds-text-secondary uppercase">
-                      Type de client spécifique <span className="text-slds-error">*</span>
+                      Type de client spécifique {attendance === AttendanceStatus.PRESENT && <span className="text-slds-error ml-1">*</span>}
                     </label>
                     <span className={`text-[8px] font-bold ${selectedTargetClientTypes.length > 3 ? 'text-slds-error' : 'text-slds-text-secondary'}`}>
                       {selectedTargetClientTypes.length}/3
@@ -916,7 +940,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
                           <p className="text-xs font-bold text-sky-900">—</p>
                         </div>
                         <div className="space-y-1 col-span-2">
-                          <label className="text-[9px] font-bold text-sky-800 uppercase">Langue officielle de préférence du client <span className="text-slds-error">*</span></label>
+                          <label className="text-[9px] font-bold text-sky-800 uppercase">Langue officielle de préférence du client {attendance === AttendanceStatus.PRESENT && <span className="text-slds-error ml-1">*</span>}</label>
                           <select
                             value={(naarsData as any).languageOfService || ''}
                             onChange={(e) => setNAARSValue('languageOfService' as any, e.target.value)}
@@ -1114,7 +1138,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
                         {activeSection === 'format' && (
                           <div className="p-4 bg-white space-y-4 border-t border-slds-border animate-in slide-in-from-top-1">
                             <div className="space-y-2">
-                              <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Format de l'évaluation <span className="text-slds-error">*</span></label>
+                              <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Format de l'évaluation {attendance === AttendanceStatus.PRESENT && <span className="text-slds-error ml-1">*</span>}</label>
                               <div className="grid grid-cols-1 gap-1">
                                 {renderNAARSCheckbox("En personne", "formatInPersonInd")}
                                 {renderNAARSCheckbox("À distance — dirigé par le personnel", "formatRemoteStaffInd")}
@@ -1223,7 +1247,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
                       
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold text-slds-text-secondary uppercase">
-                          Emplacement du client : Pays <span className="text-slds-error">*</span>
+                          Emplacement du client : Pays {attendance === AttendanceStatus.PRESENT && <span className="text-slds-error ml-1">*</span>}
                         </label>
                         <select 
                           name="clientLocationCountry" 
@@ -1252,7 +1276,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
                           <div className="p-4 bg-white space-y-3 border-t border-slds-border animate-in slide-in-from-top-1">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Statut professionnel (Canada) <span className="text-red-500">*</span></label>
+                                <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Statut professionnel (Canada) {attendance === AttendanceStatus.PRESENT && <span className="text-red-500 ml-1">*</span>}</label>
                                 <select value={(naarsData as any).employmentStatusCanada || ''} onChange={(e) => setNAARSValue('employmentStatusCanada' as any, e.target.value)} className="slds-input text-xs">
                                   <option value="">Sélectionner...</option>
                                   {EMPLOYMENT_STATUS_CANADA.map(o => <option key={o} value={o}>{o}</option>)}
@@ -1267,7 +1291,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
                               </div>
                             </div>
                             <div className="space-y-1">
-                              <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Profession prévue (CNP) <span className="text-red-500">*</span></label>
+                              <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Profession prévue (CNP) {attendance === AttendanceStatus.PRESENT && <span className="text-red-500 ml-1">*</span>}</label>
                               <div className="relative">
                                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                 <input 
@@ -1364,7 +1388,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
                         {activeSection === 'emp-format' && (
                           <div className="p-4 bg-white space-y-4 border-t border-slds-border animate-in slide-in-from-top-1">
                             <div className="space-y-2">
-                               <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Format de l'activité <span className="text-red-500">*</span></label>
+                               <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Format de l'activité {attendance === AttendanceStatus.PRESENT && <span className="text-red-500 ml-1">*</span>}</label>
                                <div className="grid grid-cols-1 gap-1">
                                  {renderNAARSCheckbox("En personne", "formatInPersonInd")}
                                  {renderNAARSCheckbox("À distance — dirigé par le personnel", "formatRemoteStaffInd")}

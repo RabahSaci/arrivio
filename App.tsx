@@ -609,8 +609,9 @@ const App: React.FC = () => {
         <ClientDetails 
           client={selectedClient} activeRole={activeRole} currentUserName={currentUserName} currentUserId={currentUserId}
           allClients={clients} allSessions={sessions} allPartners={partners} allProfiles={profiles}
-          allLogs={activityLogs} 
+          allLogs={activityLogs} allContracts={contracts}
           onBack={() => setSelectedClient(null)} 
+          onAddSession={handleAddSession}
           onUpdate={async (u) => { 
             try {
               const oldClient = clients.find(c => c.id === u.id);

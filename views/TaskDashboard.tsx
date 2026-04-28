@@ -45,11 +45,15 @@ const TaskDashboard: React.FC<TaskDashboardProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
 
+  // Reset to first page ONLY when a filter is changed
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, categoryFilter, advisorFilter]);
+
   const canSeeAll = activeRole === UserRole.ADMIN || activeRole === UserRole.MANAGER;
 
   // Filtrage des tâches
   const filteredTasks = useMemo(() => {
-    setCurrentPage(1); // Reset to first page on filter change
     return tasks.filter(task => {
       // Filtre de rôle : Un conseiller ne voit que ses tâches
       if (!canSeeAll && task.assignedToId !== currentUserId) return false;
@@ -86,13 +90,13 @@ const TaskDashboard: React.FC<TaskDashboardProps> = ({
       
       return true;
     }).sort((a, b) => {
-      // Tri par priorité d'abord (CRITICAL > HIGH > MEDIUM > LOW)
-      const priorityOrder = { [TaskPriority.CRITICAL]: 0, [TaskPriority.HIGH]: 1, [TaskPriority.MEDIUM]: 2, [TaskPriority.LOW]: 3 };
-      if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
-        return priorityOrder[a.priority] - priorityOrder[b.priority];
+      // 1. Tri par statut : "À faire" (PENDING) d'abord, puis "Terminé" (COMPLETED)
+      if (a.status !== b.status) {
+        return a.status === TaskStatus.PENDING ? -1 : 1;
       }
-      // Puis par date d'échéance
-      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      
+      // 2. Tri chronologique : du plus récent au plus ancien (basé sur la date de création)
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
   }, [tasks, activeRole, currentUserId, statusFilter, advisorFilter, categoryFilter, searchQuery, canSeeAll]);
 

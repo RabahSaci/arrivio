@@ -711,19 +711,10 @@ const SessionList: React.FC<SessionListProps> = ({
               className="hidden" 
             />
             <button 
-              onClick={handleImportExcel}
-              disabled={isImporting}
-              className="slds-button slds-button-neutral !px-4 !py-2 flex items-center gap-2"
+              onClick={() => setShowModal(activeCategory === SessionCategory.INDIVIDUAL ? 'individual' : 'group')}
+              className="slds-button slds-button-brand !px-4 !py-2 w-full lg:w-auto"
             >
-              {isImporting ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" /> Chargement...
-                </>
-              ) : (
-                <>
-                  <Upload size={14} /> Téléversement par lots
-                </>
-              )}
+              <Plus size={14} className="mr-2" /> Nouvelle Séance
             </button>
             
             {activeCategory === SessionCategory.GROUP && (
@@ -755,10 +746,19 @@ const SessionList: React.FC<SessionListProps> = ({
               </button>
             )}
             <button 
-              onClick={() => setShowModal(activeCategory === SessionCategory.INDIVIDUAL ? 'individual' : 'group')}
-              className="slds-button slds-button-brand !px-4 !py-2 w-full lg:w-auto"
+              onClick={handleImportExcel}
+              disabled={isImporting}
+              className="slds-button slds-button-neutral !px-4 !py-2 flex items-center gap-2"
             >
-              <Plus size={14} className="mr-2" /> Nouvelle Séance
+              {isImporting ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" /> Chargement...
+                </>
+              ) : (
+                <>
+                  <Upload size={14} /> Téléversement par lots
+                </>
+              )}
             </button>
           </div>
         </div>

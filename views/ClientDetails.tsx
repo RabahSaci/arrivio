@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Client, ReferralStatus, Mentor, Partner, Session, UserRole, Note, Profile, UserActivityLog, AttendanceStatus, SessionType, SessionCategory } from '../types';
+import { Client, ReferralStatus, Mentor, Partner, Session, UserRole, Note, Profile, UserActivityLog, AttendanceStatus, SessionType, SessionCategory, Contract } from '../types';
 import { STATUS_COLORS, MOCK_CLIENTS, MOCK_SESSIONS, SESSION_TYPE_LABELS } from '../constants';
 import { getPeerMatches, generateClientSynthesis } from '../services/geminiService';
 import ConfirmModal from '../components/ConfirmModal';
-import { Edit2, Save, Plane, ArrowLeft, Send, FileText, Info, Zap, CheckCircle2, RefreshCw, Share2, Calendar, History, Clock, Globe, Archive, MessageSquare, HeartHandshake, MapPin, Briefcase, ChevronRight, Sparkles, Loader2, Phone, Mail, Tag, X, UserX, AlertCircle, Building2, User, Fingerprint, FileCheck, ShieldCheck, Database, Cpu, Star, Activity, UserCheck, ChevronDown, ArrowRight, Check, Filter, Target, Users, Trash2 } from 'lucide-react';
+import SessionModal from '../components/SessionModal';
+import { Edit2, Save, Plane, ArrowLeft, Send, FileText, Info, Zap, CheckCircle2, RefreshCw, Share2, Calendar, History, Clock, Globe, Archive, MessageSquare, HeartHandshake, MapPin, Briefcase, ChevronRight, Sparkles, Loader2, Phone, Mail, Tag, X, UserX, AlertCircle, Building2, User, Fingerprint, FileCheck, ShieldCheck, Database, Cpu, Star, Activity, UserCheck, ChevronDown, ArrowRight, Check, Filter, Target, Users, Trash2, Plus } from 'lucide-react';
 
 interface ClientDetailsProps {
   client: Client;
@@ -15,10 +16,12 @@ interface ClientDetailsProps {
   onUpdate: (updatedClient: Client) => void;
   onAddNote: (clientId: string, content: string) => Promise<void>;
   onUpdateSession?: (session: Session) => Promise<void>;
+  onAddSession: (session: Session) => void;
   allClients?: Client[];
   allMentors?: Mentor[];
   allSessions?: Session[];
   allPartners?: Partner[];
+  allContracts?: Contract[];
   allProfiles?: Profile[];
   allLogs?: UserActivityLog[];
   onDeleteClient?: (clientId: string) => void;
@@ -33,9 +36,11 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   onUpdate,
   onAddNote,
   onUpdateSession,
+  onAddSession,
   allClients = MOCK_CLIENTS, 
   allSessions = MOCK_SESSIONS,
   allPartners = [],
+  allContracts = [],
   allProfiles = [],
   allLogs = [],
   onDeleteClient
@@ -111,6 +116,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   const [isUpdatingAttendance, setIsUpdatingAttendance] = useState<string | null>(null);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [showSessionModal, setShowSessionModal] = useState(false);
   const [tempClient, setTempClient] = useState<Client>({ ...client });
 
   const isArrivalField = (field: keyof Client) => {
@@ -678,6 +684,11 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                   <p className={`text-[9px] font-bold uppercase ${stats.total > 0 ? rel.color : 'text-slate-400'} opacity-80`}>
                     {stats.total > 0 ? rel.label : 'En attente de service'}
                   </p>
+                  {stats.total > 0 && (
+                    <p className="text-[8px] text-slate-400 font-bold mt-0.5 italic">
+                      Sur {stats.total} séance{stats.total > 1 ? 's' : ''}
+                    </p>
+                  )}
                 </div>
               </div>
               {stats.total > 0 ? (
@@ -690,9 +701,14 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                 </div>
               )}
             </div>
-            <p className="text-[8px] text-slate-400 font-bold mt-4 uppercase tracking-tighter italic text-center">
-              {stats.total > 0 ? `Calculé sur ${stats.total} séance(s)` : 'Historique vierge'}
-            </p>
+            <div className="mt-4 pt-4 border-t border-slate-50 flex justify-center">
+              <button 
+                onClick={() => setShowSessionModal(true)}
+                className="slds-button slds-button-brand !px-8 !py-1.5 flex items-center gap-2 !text-[10px] !rounded-full shadow-md hover:shadow-lg transition-all"
+              >
+                <Plus size={12} /> Nouvelle Séance
+              </button>
+            </div>
           </div>
 
           {/* Colonne 2 : Données Administratives */}
@@ -1349,6 +1365,26 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
           </div>
         </div>
       </div>
+
+      <SessionModal 
+        isOpen={showSessionModal}
+        onClose={() => setShowSessionModal(false)}
+        session={null}
+        initialCategory={SessionCategory.INDIVIDUAL}
+        initialParticipantIds={[client.id]}
+        clients={allClients || []}
+        partners={allPartners || []}
+        contracts={allContracts || []}
+        sessions={allSessions || []}
+        allProfiles={allProfiles || []}
+        activeRole={activeRole}
+        currentUserName={currentUserName}
+        currentUserId={currentUserId}
+        onSave={(newSession) => {
+          onAddSession(newSession);
+          setShowSessionModal(false);
+        }}
+      />
     </div>
   );
 };
