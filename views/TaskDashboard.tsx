@@ -108,16 +108,15 @@ const TaskDashboard: React.FC<TaskDashboardProps> = ({
 
   const totalPages = Math.ceil(filteredTasks.length / itemsPerPage);
 
-  // Statistiques
+  // Statistiques basées sur les tâches filtrées
   const stats = useMemo(() => {
-    const relevantTasks = canSeeAll ? tasks : tasks.filter(t => t.assignedToId === currentUserId);
     return {
-      total: relevantTasks.length,
-      pending: relevantTasks.filter(t => t.status === TaskStatus.PENDING).length,
-      urgent: relevantTasks.filter(t => t.status === TaskStatus.PENDING && (t.priority === TaskPriority.CRITICAL || t.priority === TaskPriority.HIGH)).length,
-      completed: relevantTasks.filter(t => t.status === TaskStatus.COMPLETED).length
+      total: filteredTasks.length,
+      pending: filteredTasks.filter(t => t.status === TaskStatus.PENDING).length,
+      urgent: filteredTasks.filter(t => t.status === TaskStatus.PENDING && (t.priority === TaskPriority.CRITICAL || t.priority === TaskPriority.HIGH)).length,
+      completed: filteredTasks.filter(t => t.status === TaskStatus.COMPLETED).length
     };
-  }, [tasks, canSeeAll, currentUserId]);
+  }, [filteredTasks]);
 
   const handleToggleStatus = (task: WorkflowTask) => {
     const newStatus = task.status === TaskStatus.COMPLETED ? TaskStatus.PENDING : TaskStatus.COMPLETED;

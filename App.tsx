@@ -748,7 +748,7 @@ const App: React.FC = () => {
           allProfiles={profiles}
         />
       );
-      case 'reports': return <Reports clients={clients} sessions={sessions} partners={partners} activeRole={activeRole} currentPartnerId={currentPartnerId} />;
+      case 'reports': return <Reports clients={clients} sessions={sessions} partners={partners} activeRole={activeRole} currentPartnerId={currentPartnerId} currentUserName={currentUserName} />;
       case 'settings': 
         if (activeRole !== UserRole.ADMIN) return <Dashboard clients={clients} partners={partners} sessions={sessions} activeRole={activeRole} currentUserId={currentUserId} />;
         return <Settings />;

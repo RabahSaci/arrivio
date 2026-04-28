@@ -105,6 +105,61 @@ const REFERRAL_FUNDED_PAIRS: Array<[keyof Session, keyof Session]> = [
   ['employmentEducationReferralInd', 'employmentEducationFundedReferralId'],
 ];
 
+const LIFE_NEEDS_IDS = [
+  'lifeNeedsBasicIdentifiedInd',
+  'lifeNeedsFamilyChildrenIdentifiedInd',
+  'lifeNeedsHealthAndMentalIdentifiedInd',
+  'lifeNeedsHousingIdentifiedInd',
+  'lifeNeedsGovernmentKnowledgeIdentifiedInd',
+  'lifeNeedsCanadaKnowledgeIdentifiedInd',
+  'lifeNeedsLegalIdentifiedInd',
+  'lifeNeedsFinancialIdentifiedInd',
+  'lifeNeedsCommunityKnowledgeIdentifiedInd',
+  'lifeNeedsSocialNetworkingIdentifiedInd',
+  'lifeNeedsRacismIdentifiedInd'
+];
+
+const LANGUAGE_ASSET_CHILDREN = [
+  'languageAssetEnglishInd',
+  'languageAssetFrenchInd',
+  'languageAssetOtherInd'
+];
+
+const LANGUAGE_NEED_CHILDREN = [
+  'languageNeedsOfficialIdentifiedNeedInd',
+  'languageNeedsLiteracyIdentifiedNeedInd',
+  'languageNeedsEmploymentIdentifiedNeedInd'
+];
+
+const EMPLOYMENT_ASSET_CHILDREN = [
+  'employmentAssetEmployedInd',
+  'employmentAssetForeignCredentialInd',
+  'employmentAssetLabourMarketInd',
+  'employmentAssetDegreeInCanadaInd',
+  'employmentAssetDegreeOutsideCanadaInd',
+  'employmentAssetPreviousEmploymentInd',
+  'employmentAssetJobRelatedTrainingInd',
+  'employmentAssetWorkExperienceOutsideCanadaInd',
+  'employmentAssetOtherSkillsInd'
+];
+
+const EMPLOYMENT_NEED_CHILDREN = [
+  'employmentLabourMarketNeedInd',
+  'employmentFindingEmploymentNeedInd',
+  'employmentCredentialsNeedInd',
+  'employmentEducationNeedInd'
+];
+
+const EMPLOYMENT_TOPIC_FIELDS = [
+  'employmentTopicCareerPlanningInd',
+  'employmentTopicLabourMarketInd',
+  'employmentTopicRegulatedProfessionInd',
+  'employmentTopicEntrepreneurshipInd',
+  'employmentTopicUnregulatedProfessionInd',
+  'employmentTopicSkillsInd',
+  'employmentTopicWorkplaceOrientationInd'
+];
+
 interface SessionModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -242,6 +297,10 @@ const SessionModal: React.FC<SessionModalProps> = ({
         setNaarsData({
           formalFollowUpInd: false,
           lifeNeedsInd: true,
+          formatRemoteStaffInd: true,
+          formatInPersonInd: false,
+          formatRemoteSelfInd: false,
+          formatRemoteEmailTextPhoneInd: false,
         });
       }
     } else if (!isOpen) {
@@ -341,34 +400,99 @@ const SessionModal: React.FC<SessionModalProps> = ({
         }
       }
       
-      // Validation SÉBAA if active
-      if (showNAARS) {
+      // Validation SÉBAA uniquement pour le service Établissement si activé
+      if (showNAARS && type === SessionType.ESTABLISHMENT) {
         if (!(naarsData as any).languageOfService) {
           alert("Veuillez sélectionner la langue officielle de préférence du client dans le module SÉBAA.");
           return;
         }
-        if (!naarsData.formatInPersonInd && !naarsData.formatRemoteStaffInd && !naarsData.formatRemoteSelfInd && !naarsData.formatRemoteEmailTextPhoneInd) {
-          alert("Veuillez sélectionner au moins un format de l'évaluation dans le module SÉBAA.");
+        
+        // Validation : Au moins 3 besoins identifiés dans Vie au Canada
+        const identifiedNeedsCount = LIFE_NEEDS_IDS.filter(id => !!(naarsData as any)[id]).length;
+        if (identifiedNeedsCount < 3) {
+          alert("Veuillez identifier au moins 3 besoins dans la section 'Vie au Canada — Atouts & Besoins' du module SÉBAA.");
           return;
+        }
+
+        // Validation : Compétences linguistiques
+        const hasLanguageAsset = !!naarsData.languageAssetInd;
+        const hasLanguageNeed = !!naarsData.languageNeedsInd;
+
+        if (!hasLanguageAsset && !hasLanguageNeed) {
+          alert("Veuillez renseigner la section 'Compétences Linguistiques' du module SÉBAA (soit les Atouts, soit les Besoins).");
+          return;
+        }
+
+        if (hasLanguageAsset) {
+          const hasAssetChild = LANGUAGE_ASSET_CHILDREN.some(id => !!(naarsData as any)[id]);
+          if (!hasAssetChild) {
+            alert("Vous avez indiqué que le client a des atouts linguistiques. Veuillez cocher au moins une langue dans la section Atouts.");
+            return;
+          }
+        }
+
+        if (hasLanguageNeed) {
+          const hasNeedChild = LANGUAGE_NEED_CHILDREN.some(id => !!(naarsData as any)[id]);
+          if (!hasNeedChild) {
+            alert("Vous avez indiqué que le client a des besoins linguistiques. Veuillez cocher au moins un type de besoin dans la section Besoins.");
+            return;
+          }
+        }
+
+        // Validation : Emploi & Éducation des Adultes
+        const hasEmploymentAsset = !!naarsData.employmentAssetInd;
+        const hasEmploymentNeed = !!naarsData.employmentNeedsInd;
+
+        if (!hasEmploymentAsset && !hasEmploymentNeed) {
+          alert("Veuillez renseigner la section 'Emploi & Éducation des Adultes' du module SÉBAA (soit les Atouts, soit les Besoins).");
+          return;
+        }
+
+        if (hasEmploymentAsset) {
+          const hasEmpAssetChild = EMPLOYMENT_ASSET_CHILDREN.some(id => !!(naarsData as any)[id]);
+          if (!hasEmpAssetChild) {
+            alert("Vous avez indiqué que le client a des atouts liés à l'emploi. Veuillez cocher au moins une option dans la section Atouts.");
+            return;
+          }
+        }
+
+        if (hasEmploymentNeed) {
+          const hasEmpNeedChildVal = EMPLOYMENT_NEED_CHILDREN.some(id => !!(naarsData as any)[id]);
+          if (!hasEmpNeedChildVal) {
+            alert("Vous avez indiqué que le client a des besoins liés à l'emploi. Veuillez cocher au moins un type de besoin dans la section Besoins.");
+            return;
+          }
         }
       }
       
       // Validation Emploi (SLE) if active
-      if (showEmployment) {
-        if (!(naarsData as any).employmentStatusCanada) {
-          alert("Veuillez sélectionner le statut professionnel (Canada) dans le module Emploi.");
+      if (!isGroup && (sessionType === SessionType.EMPLOYMENT || showEmployment) && attendance === AttendanceStatus.PRESENT) {
+        // 1. Statuts obligatoires
+        if (!(naarsData as any).employmentStatusOutside) {
+          alert("Le champ 'Statut professionnel (Hors Canada)' est obligatoire pour le module Emploi.");
           return;
         }
         if (!(naarsData as any).intendedOccupationCnp) {
-          alert("Veuillez sélectionner la profession prévue (CNP) dans le module Emploi.");
+          alert("Le champ 'Profession prévue (CNP)' est obligatoire pour le module Emploi.");
           return;
         }
-        if (!clientLocationCountry) {
-          alert("Veuillez sélectionner l'emplacement du client (Pays) dans le module Emploi.");
+        if (!(naarsData as any).languageOfService) {
+          alert("Le champ 'Langue officielle de préférence' est obligatoire pour le module Emploi.");
           return;
         }
-        if (!naarsData.formatInPersonInd && !naarsData.formatRemoteStaffInd && !naarsData.formatRemoteSelfInd && !naarsData.formatRemoteEmailTextPhoneInd) {
-          alert("Veuillez sélectionner au moins un format de l'activité dans le module Emploi.");
+
+        // 2. Population cible
+        if ((naarsData as any).employmentTargetInd) {
+          if (!(naarsData as any).employmentTargetType && !(naarsData as any).employmentSectorSpecific) {
+            alert("Puisque l'activité est destinée à une population cible ou secteur spécifique, veuillez remplir l'une de ces deux informations.");
+            return;
+          }
+        }
+
+        // 3. Activités et sujets fournis (min 3)
+        const selectedTopicsCount = EMPLOYMENT_TOPIC_FIELDS.filter(id => !!(naarsData as any)[id]).length;
+        if (selectedTopicsCount < 3) {
+          alert("Veuillez sélectionner au moins 3 choix dans la section 'Activités et Sujets fournis' du module Emploi.");
           return;
         }
       }
@@ -391,6 +515,10 @@ const SessionModal: React.FC<SessionModalProps> = ({
 
     const sessionData: Session = {
       ...naarsData, // Start with existing data (NAARS indicators etc.)
+      formatRemoteStaffInd: true,
+      formatInPersonInd: false,
+      formatRemoteSelfInd: false,
+      formatRemoteEmailTextPhoneInd: false,
       id: session?.id || Date.now().toString(),
       title,
       type,
@@ -649,6 +777,14 @@ const SessionModal: React.FC<SessionModalProps> = ({
                     <option value="240">4,0</option>
                   </select>
                 </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Format de l'activité</label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-sm">
+                      ✓ À distance — dirigé par le personnel (Valeur fixe Arrivio)
+                    </span>
+                  </div>
+                </div>
               </div>
 
               {isGroup && (
@@ -811,6 +947,12 @@ const SessionModal: React.FC<SessionModalProps> = ({
 
                 {/* Emplacement du client : Pays */}
                 <div className="space-y-1">
+                  {selectedClient?.originCountry && (
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-500 font-semibold">
+                      <span className="font-black text-slate-400 uppercase tracking-widest">Pays d'origine du client :</span>
+                      <span className="text-slate-700 font-bold">{selectedClient.originCountry}</span>
+                    </div>
+                  )}
                   {selectedClient?.residenceCountry && (
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-500 font-semibold">
                       <span className="font-black text-slate-400 uppercase tracking-widest">Pays de résidence du client :</span>
@@ -1138,12 +1280,12 @@ const SessionModal: React.FC<SessionModalProps> = ({
                         {activeSection === 'format' && (
                           <div className="p-4 bg-white space-y-4 border-t border-slds-border animate-in slide-in-from-top-1">
                             <div className="space-y-2">
-                              <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Format de l'évaluation {attendance === AttendanceStatus.PRESENT && <span className="text-slds-error ml-1">*</span>}</label>
-                              <div className="grid grid-cols-1 gap-1">
-                                {renderNAARSCheckbox("En personne", "formatInPersonInd")}
-                                {renderNAARSCheckbox("À distance — dirigé par le personnel", "formatRemoteStaffInd")}
-                                {renderNAARSCheckbox("À distance — auto-dirigé", "formatRemoteSelfInd")}
-                                {renderNAARSCheckbox("À distance par courriel / message texte / téléphone", "formatRemoteEmailTextPhoneInd")}
+                              <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Format de l'évaluation</label>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  ✓ À distance — dirigé par le personnel (fixe)
+                                </span>
+                                <span className="text-[9px] text-slate-400 italic">Valeur obligatoire pour les services Arrivio.</span>
                               </div>
                             </div>
 
@@ -1246,6 +1388,26 @@ const SessionModal: React.FC<SessionModalProps> = ({
                     <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
                       
                       <div className="space-y-1">
+                        {selectedClient?.originCountry && (
+                          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-500 font-semibold mb-2">
+                            <span className="font-black text-slate-400 uppercase tracking-widest">Pays d'origine du client :</span>
+                            <span className="text-slate-700 font-bold">{selectedClient.originCountry}</span>
+                          </div>
+                        )}
+                        <div className="mb-4">
+                          <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Langue officielle de préférence du client {attendance === AttendanceStatus.PRESENT && <span className="text-slds-error ml-1">*</span>}</label>
+                          <select
+                            value={(naarsData as any).languageOfService || ''}
+                            onChange={(e) => setNAARSValue('languageOfService' as any, e.target.value)}
+                            className="slds-input text-xs"
+                          >
+                            <option value="">Sélectionner...</option>
+                            <option>Français</option>
+                            <option>Anglais</option>
+                            <option>Les deux (Anglais et/ou Français)</option>
+                            <option>Aucune (Anglais ou Français)</option>
+                          </select>
+                        </div>
                         <label className="text-[10px] font-bold text-slds-text-secondary uppercase">
                           Emplacement du client : Pays {attendance === AttendanceStatus.PRESENT && <span className="text-slds-error ml-1">*</span>}
                         </label>
@@ -1276,21 +1438,36 @@ const SessionModal: React.FC<SessionModalProps> = ({
                           <div className="p-4 bg-white space-y-3 border-t border-slds-border animate-in slide-in-from-top-1">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Statut professionnel (Canada) {attendance === AttendanceStatus.PRESENT && <span className="text-red-500 ml-1">*</span>}</label>
-                                <select value={(naarsData as any).employmentStatusCanada || ''} onChange={(e) => setNAARSValue('employmentStatusCanada' as any, e.target.value)} className="slds-input text-xs">
-                                  <option value="">Sélectionner...</option>
+                                <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Statut professionnel (Canada)</label>
+                                <select 
+                                  value="" 
+                                  disabled 
+                                  className="slds-input text-xs bg-slate-50 opacity-60 cursor-not-allowed"
+                                >
+                                  <option value="">(Non applicable / Non modifiable)</option>
                                   {EMPLOYMENT_STATUS_CANADA.map(o => <option key={o} value={o}>{o}</option>)}
                                 </select>
                               </div>
                               <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Statut professionnel (Hors Canada)</label>
-                                <select value={(naarsData as any).employmentStatusOutside || ''} onChange={(e) => setNAARSValue('employmentStatusOutside' as any, e.target.value)} className="slds-input text-xs">
+                                <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Statut professionnel (Hors Canada) {attendance === AttendanceStatus.PRESENT && <span className="text-red-500 ml-1">*</span>}</label>
+                                <select 
+                                  value={(naarsData as any).employmentStatusOutside || ''} 
+                                  onChange={(e) => setNAARSValue('employmentStatusOutside' as any, e.target.value)} 
+                                  required={attendance === AttendanceStatus.PRESENT}
+                                  className="slds-input text-xs"
+                                >
                                   <option value="">Sélectionner...</option>
                                   {EMPLOYMENT_STATUS_OUTSIDE.map(o => <option key={o} value={o}>{o}</option>)}
                                 </select>
                               </div>
                             </div>
                             <div className="space-y-1">
+                              {selectedClient?.intendedProfessionGroupCanada && (
+                                <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-200 rounded text-[10px] text-indigo-500 font-semibold mb-2">
+                                  <span className="font-black text-indigo-400 uppercase tracking-widest">Profession visée (CA) :</span>
+                                  <span className="text-indigo-700 font-bold">{selectedClient.intendedProfessionGroupCanada}</span>
+                                </div>
+                              )}
                               <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Profession prévue (CNP) {attendance === AttendanceStatus.PRESENT && <span className="text-red-500 ml-1">*</span>}</label>
                               <div className="relative">
                                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1299,6 +1476,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
                                   value={(naarsData as any).intendedOccupationCnp || ''} 
                                   onChange={(e) => setNAARSValue('intendedOccupationCnp' as any, e.target.value)}
                                   placeholder="Rechercher par code ou nom de métier..."
+                                  required={attendance === AttendanceStatus.PRESENT}
                                   className="slds-input text-xs pl-10"
                                 />
                                 <datalist id="cnp-list">
@@ -1331,7 +1509,12 @@ const SessionModal: React.FC<SessionModalProps> = ({
                                 </div>
                                 <div className="space-y-1">
                                   <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Secteur spécifique</label>
-                                  <select value={(naarsData as any).employmentSectorSpecific || ''} onChange={(e) => setNAARSValue('employmentSectorSpecific' as any, e.target.value)} className="slds-input text-xs">
+                                  <select 
+                                    value={(naarsData as any).employmentSectorSpecific || ''} 
+                                    onChange={(e) => setNAARSValue('employmentSectorSpecific' as any, e.target.value)} 
+                                    className="slds-input text-xs disabled:opacity-40 disabled:bg-slate-50 disabled:cursor-not-allowed"
+                                    disabled={(naarsData as any).employmentTargetType === "Populations ciblées"}
+                                  >
                                     <option value="">Sélectionner...</option>
                                     {EMPLOYMENT_SECTORS.map(o => <option key={o} value={o}>{o}</option>)}
                                   </select>
@@ -1388,12 +1571,12 @@ const SessionModal: React.FC<SessionModalProps> = ({
                         {activeSection === 'emp-format' && (
                           <div className="p-4 bg-white space-y-4 border-t border-slds-border animate-in slide-in-from-top-1">
                             <div className="space-y-2">
-                               <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Format de l'activité {attendance === AttendanceStatus.PRESENT && <span className="text-red-500 ml-1">*</span>}</label>
-                               <div className="grid grid-cols-1 gap-1">
-                                 {renderNAARSCheckbox("En personne", "formatInPersonInd")}
-                                 {renderNAARSCheckbox("À distance — dirigé par le personnel", "formatRemoteStaffInd")}
-                                 {renderNAARSCheckbox("À distance — auto-dirigé", "formatRemoteSelfInd")}
-                                 {renderNAARSCheckbox("À distance par courriel / message texte / téléphone", "formatRemoteEmailTextPhoneInd")}
+                               <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Format de l'activité</label>
+                               <div className="flex items-center gap-2 mt-1">
+                                 <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                   ✓ À distance — dirigé par le personnel (fixe)
+                                 </span>
+                                 <span className="text-[9px] text-slate-400 italic">Valeur obligatoire pour les services Arrivio.</span>
                                </div>
                             </div>
                             <div className="space-y-2">

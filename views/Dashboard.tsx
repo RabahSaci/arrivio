@@ -1,5 +1,5 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { 
   BarChart, 
   Bar, 
@@ -14,7 +14,7 @@ import {
   Legend,
   LabelList
 } from 'recharts';
-import { Users, UserCheck, Clock, TrendingUp, CalendarCheck, CheckCircle2, User, Globe, MapPin, AlertCircle } from 'lucide-react';
+import { Users, UserCheck, Clock, TrendingUp, CalendarCheck, CheckCircle2, User, Globe, MapPin, AlertCircle, Target } from 'lucide-react';
 import { Client, Partner, Session, ReferralStatus, UserRole, SessionCategory, SessionType, AttendanceStatus } from '../types';
 import { SESSION_TYPE_LABELS } from '../constants';
 
@@ -30,27 +30,57 @@ const COLORS = ['#0176d3', '#2e844a', '#fe9339', '#706e6b', '#ea001e'];
 const PIE_COLORS = ['#0176d3', '#2e844a', '#fe9339', '#ea001e', '#8b5cf6', '#6366f1'];
 
 const Dashboard: React.FC<DashboardProps> = ({ clients, partners, sessions, activeRole, currentUserId }) => {
-  // Filtrage préliminaire si le rôle est Mentor
-  const visibleClients = useMemo(() => {
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+
+  // Helper to check if a date is within the range
+  const isWithinRange = (dateStr?: string) => {
+    if (!dateStr) return false;
+    const date = new Date(dateStr).getTime();
+    if (startDate && date < new Date(startDate).getTime()) return false;
+    if (endDate && date > new Date(endDate).getTime()) return false;
+    return true;
+  };
+
+  // Filtrage préliminaire si le rôle est Mentor + Filtre de date
+  const filteredClients = useMemo(() => {
+    let result = clients;
     if (activeRole === UserRole.MENTOR) {
-      return clients.filter(c => c.assignedMentorId === currentUserId);
+      result = result.filter(c => c.assignedMentorId === currentUserId);
     }
-    return clients;
-  }, [clients, activeRole, currentUserId]);
+    
+    // Apply date filter (based on referralDate)
+    if (startDate || endDate) {
+      result = result.filter(c => isWithinRange(c.referralDate));
+    }
+    
+    return result;
+  }, [clients, activeRole, currentUserId, startDate, endDate]);
+
+  const filteredSessions = useMemo(() => {
+    let result = sessions;
+    
+    // Filter by date
+    if (startDate || endDate) {
+      result = result.filter(s => isWithinRange(s.date));
+    }
+    
+    return result;
+  }, [sessions, startDate, endDate]);
 
   // Calcul des statistiques globales
   const stats = useMemo(() => {
-    const total = visibleClients.length;
-    const referredCount = visibleClients.filter(c => !!c.assignedPartnerId).length;
+    const total = filteredClients.length;
+    const referredCount = filteredClients.filter(c => !!c.assignedPartnerId).length;
     const referralRate = total > 0 ? Math.round((referredCount / total) * 100) : 0;
-    const inProgressCount = visibleClients.filter(c => 
+    const inProgressCount = filteredClients.filter(c => 
       c.status === ReferralStatus.IN_PROGRESS || 
       c.status === ReferralStatus.CONTACTED || 
       c.status === ReferralStatus.ACKNOWLEDGED
     ).length;
 
     // Calcul du délai moyen (en jours) entre referralDate et acknowledgedAt
-    const processedClients = visibleClients.filter(c => c.referralDate && c.acknowledgedAt);
+    const processedClients = filteredClients.filter(c => c.referralDate && c.acknowledgedAt);
     let avgDelay = 0;
     if (processedClients.length > 0) {
       const totalDelay = processedClients.reduce((acc, c) => {
@@ -61,20 +91,31 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, partners, sessions, acti
       avgDelay = Number(((totalDelay / processedClients.length) / (1000 * 60 * 60 * 24)).toFixed(1));
     }
 
+    // Calcul du taux de conversion (Clients servis vs total)
+    // Un client est considéré "servi" s'il a au moins une séance individuelle dans l'historique global
+    const servedClientIds = new Set(
+      sessions
+        .filter(s => s.category === SessionCategory.INDIVIDUAL)
+        .flatMap(s => s.participantIds)
+    );
+    const servedCount = filteredClients.filter(c => servedClientIds.has(c.id)).length;
+    const conversionRate = total > 0 ? Math.round((servedCount / total) * 100) : 0;
+
     return [
       { label: activeRole === UserRole.MENTOR ? 'Mes Clients' : 'Total Clients', value: total.toLocaleString(), icon: Users, color: 'text-blue-600', bg: 'bg-blue-50', trend: '+5%' },
       { label: 'Taux Référencement', value: `${referralRate}%`, icon: TrendingUp, color: 'text-green-600', bg: 'bg-green-50', trend: 'Objectif 90%' },
+      { label: 'Taux Conversion', value: `${conversionRate}%`, icon: Target, color: 'text-emerald-600', bg: 'bg-emerald-50', trend: 'Clients servis' },
       { label: 'Pris en charge', value: inProgressCount.toLocaleString(), icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-50', trend: 'En cours' },
       { label: 'Délai moyen', value: avgDelay > 0 ? `${avgDelay} j` : '--', icon: Clock, color: 'text-orange-600', bg: 'bg-orange-50', trend: 'Traitement' },
     ];
-  }, [visibleClients, activeRole]);
+  }, [filteredClients, activeRole, sessions]);
 
   // Statistiques des séances
   const sessionStats = useMemo(() => {
     // Filtrer les sessions pertinentes (si Mentor, seulement celles de ses clients, sinon toutes)
     const relevantSessions = activeRole === UserRole.MENTOR 
-      ? sessions.filter(s => s.participantIds.some(pid => visibleClients.find(c => c.id === pid))) 
-      : sessions;
+      ? filteredSessions.filter(s => s.participantIds.some(pid => filteredClients.find(c => c.id === pid))) 
+      : filteredSessions;
 
     const individualSessions = relevantSessions.filter(s => s.category === SessionCategory.INDIVIDUAL);
     const groupSessions = relevantSessions.filter(s => s.category === SessionCategory.GROUP);
@@ -120,15 +161,15 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, partners, sessions, acti
       group: { total: groupSessions.length, byService: groupByService },
       noShowRate
     };
-  }, [sessions, visibleClients, activeRole]);
+  }, [filteredSessions, filteredClients, activeRole]);
 
   // Données Démographiques (Pays & Villes)
   const demographics = useMemo(() => {
     const countries: Record<string, number> = {};
     const cities: Record<string, number> = {};
-    const total = visibleClients.length || 1; // Avoid division by zero
+    const total = filteredClients.length || 1; // Avoid division by zero
 
-    visibleClients.forEach(c => {
+    filteredClients.forEach(c => {
       if (c.originCountry) countries[c.originCountry] = (countries[c.originCountry] || 0) + 1;
       if (c.destinationCity) cities[c.destinationCity] = (cities[c.destinationCity] || 0) + 1;
     });
@@ -156,12 +197,12 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, partners, sessions, acti
       countries: formatData(countries),
       cities: formatData(cities)
     };
-  }, [visibleClients]);
+  }, [filteredClients]);
 
   // Agrégation des besoins pour le graphique en barres
   const needsData = useMemo(() => {
     const counts: Record<string, number> = {};
-    visibleClients.forEach(c => {
+    filteredClients.forEach(c => {
       if (c.needs && Array.isArray(c.needs)) {
         c.needs.forEach(need => {
           counts[need] = (counts[need] || 0) + 1;
@@ -173,7 +214,7 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, partners, sessions, acti
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 5); // Top 5 des besoins
-  }, [visibleClients]);
+  }, [filteredClients]);
 
   // Render Breakdown amélioré
   const renderServiceBreakdown = (data: Record<string, number>) => (
@@ -192,8 +233,50 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, partners, sessions, acti
 
   return (
     <div className="space-y-6">
+      {/* Filtres de Date */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+            <CalendarCheck size={20} />
+          </div>
+          <div>
+            <h2 className="text-sm font-black text-slate-900 uppercase tracking-tight">Période d'analyse</h2>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Filtrer les statistiques par date</p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Du</span>
+            <input 
+              type="date" 
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Au</span>
+            <input 
+              type="date" 
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+            />
+          </div>
+          {(startDate || endDate) && (
+            <button 
+              onClick={() => { setStartDate(''); setEndDate(''); }}
+              className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"
+              title="Réinitialiser"
+            >
+              <AlertCircle size={18} />
+            </button>
+          )}
+        </div>
+      </div>
       {/* Grille de KPI Clients */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         {stats.map((stat) => (
           <div key={stat.label} className="slds-card p-4">
             <div className="flex items-center justify-between mb-2">

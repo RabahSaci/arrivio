@@ -29,9 +29,10 @@ interface ReportsProps {
   partners: Partner[];
   activeRole: UserRole;
   currentPartnerId?: string;
+  currentUserName?: string;
 }
 
-const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRole, currentPartnerId }) => {
+const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRole, currentPartnerId, currentUserName }) => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedPartner, setSelectedPartner] = useState('ALL');
@@ -65,12 +66,14 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
       const sessionDate = new Date(s.date);
       const matchStart = !startDate || sessionDate >= new Date(startDate);
       const matchEnd = !endDate || sessionDate <= new Date(endDate);
+      
+      // Filtrage par conseiller : Les conseillers ne voient que leurs propres séances
+      // L'admin et le manager voient tout.
+      const matchUser = isAdmin || s.facilitatorName === currentUserName || s.advisorName === currentUserName;
 
-      // Pour les séances, on filtre aussi par rapport à l'advisor/facilitator si nécessaire, 
-      // ici on garde une approche globale pour les rapports admin
-      return matchType && matchStart && matchEnd;
+      return matchType && matchStart && matchEnd && matchUser;
     });
-  }, [sessions, selectedType, startDate, endDate]);
+  }, [sessions, selectedType, startDate, endDate, isAdmin, currentUserName]);
 
   const downloadExcel = (data: any[], filename: string) => {
     if (data.length === 0) {
