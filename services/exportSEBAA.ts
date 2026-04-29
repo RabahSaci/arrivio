@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { Session, Client } from '../types';
+import { getIRCCCountry } from '../constants';
 
 // ============================================================
 // SÉBAA EXPORT SERVICE — Conforme gabarit IRCC VER 1335
@@ -72,7 +73,7 @@ function sessionToRow(session: Session, clients: Client[]): string[] {
     // Col 12: client_postal_cd — Code postal Client
     clientPostalCd,
     // Col 13: client_country_id — Pays du client
-    session.clientLocationCountry || '',
+    getIRCCCountry(session.clientLocationCountry || (client as any)?.irccOriginCountry || client?.residenceCountry || client?.originCountry || 'Canada'),
     // Col 14: service_language_id — Langue utilisée lors de l'évaluation
     session.languageUsed || 'Français',
     // Col 15: formal_follow_up_ind

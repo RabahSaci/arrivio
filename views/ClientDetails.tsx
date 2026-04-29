@@ -373,7 +373,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
       status: ReferralStatus.REFERRED, 
       assignedPartnerId: selectedPartnerId, 
       secondaryPartnerIds: selectedSecondaryIds,
-      referralDate: new Date().toISOString(),
+      referralDate: new Date().toISOString().split('T')[0],
       referredById: currentUserId 
     });
   };
@@ -406,7 +406,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   };
 
   const handleConfirmClose = () => {
-    onUpdate({ ...client, status: ReferralStatus.CLOSED, closedAt: new Date().toISOString() });
+    onUpdate({ ...client, status: ReferralStatus.CLOSED, closedAt: new Date().toISOString().split('T')[0] });
     onBack();
   };
 
@@ -693,7 +693,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
               </div>
               {stats.total > 0 ? (
                 <div className={`px-4 py-2 rounded-xl border-2 font-black text-lg ${rel.color} ${rel.bg} border-current/20`}>
-                  {stats.rate}%
+                  {(stats.rate || 0)}%
                 </div>
               ) : (
                 <div className="text-[9px] font-black text-slate-400 uppercase bg-white px-3 py-2 rounded-xl border border-slate-100 italic">

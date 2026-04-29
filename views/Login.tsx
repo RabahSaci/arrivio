@@ -18,6 +18,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [logoError, setLogoError] = useState(false);
   const [customLogoUrl, setCustomLogoUrl] = useState<string | null>(null);
   const [loginPhotoUrl, setLoginPhotoUrl] = useState<string | null>(null);
+  const [isRecoveryMode, setIsRecoveryMode] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -31,6 +34,22 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       }
     };
     fetchSettings();
+
+    // Check for recovery hash
+    if (window.location.hash) {
+      const hash = window.location.hash.substring(1);
+      const params = new URLSearchParams(hash);
+      const accessToken = params.get('access_token');
+      const type = params.get('type');
+      
+      if (accessToken && type === 'recovery') {
+        localStorage.removeItem('arrivio_user'); // Prevent auto-login with recovery token
+        localStorage.setItem('arrivio_token', accessToken);
+        setIsRecoveryMode(true);
+        // Clear hash to avoid showing it in URL
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    }
   }, []);
 
   const handleSignIn = async (e: React.FormEvent) => {
@@ -65,10 +84,35 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     setError('');
     
     try {
-      // Password reset is currently not proxied, disabling for now or could proxy later
-      setError("La réinitialisation du mot de passe doit être effectuée par un administrateur via le dashboard Securité.");
+      await apiService.resetPasswordRequest(email);
+      setResetSent(true);
     } catch (err: any) {
       setError(err.message || "Une erreur est survenue lors de l'envoi de l'email.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRecoverySetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setError("Les mots de passe ne correspondent pas.");
+      return;
+    }
+    
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      await apiService.recoveryUpdatePassword(newPassword);
+      setResetSent(true); // Re-use resetSent for success state
+      setTimeout(() => {
+        setIsRecoveryMode(false);
+        setResetSent(false);
+        localStorage.removeItem('arrivio_token'); // Clear temporary recovery token
+      }, 3000);
+    } catch (err: any) {
+      setError(err.message || "Impossible de réinitialiser le mot de passe.");
     } finally {
       setIsLoading(false);
     }
@@ -126,7 +170,66 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       {/* Panneau de Droite (Formulaire) */}
       <div className="flex-1 flex flex-col justify-start items-center p-6 lg:p-10 bg-slate-50 md:bg-white overflow-y-auto">
         <div className="w-full max-w-sm pt-0 md:pt-1 pb-8">
-          {!isResetMode ? (
+          {isRecoveryMode ? (
+            <div className="animate-in fade-in slide-in-from-bottom-2">
+              <div className="mb-10">
+                <h2 className="text-3xl font-black text-slate-900 tracking-tight mb-2">Nouveau mot de passe</h2>
+                <p className="text-slate-500 font-medium">Définissez votre nouveau mot de passe sécurisé.</p>
+              </div>
+
+              {resetSent ? (
+                <div className="p-8 bg-emerald-50 border border-emerald-100 rounded-[32px] text-center space-y-4 animate-in zoom-in-95 duration-300">
+                  <div className="w-16 h-16 bg-emerald-500 text-white rounded-full flex items-center justify-center mx-auto shadow-lg shadow-emerald-200">
+                    <CheckCircle2 size={32} />
+                  </div>
+                  <div>
+                    <p className="font-black text-slate-900 uppercase text-xs tracking-widest">Réussi !</p>
+                    <p className="text-xs text-slate-600 mt-2 leading-relaxed">Votre mot de passe a été mis à jour. Redirection...</p>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleRecoverySetPassword} className="space-y-5">
+                  {error && (
+                    <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3 text-red-600">
+                      <AlertCircle size={18} className="shrink-0 mt-0.5" />
+                      <p className="text-xs font-bold leading-relaxed">{error}</p>
+                    </div>
+                  )}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nouveau mot de passe</label>
+                    <div className="relative group">
+                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-slds-brand transition-colors" size={18} />
+                      <input 
+                        type="password" 
+                        required 
+                        placeholder="••••••••" 
+                        value={newPassword} 
+                        onChange={(e) => setNewPassword(e.target.value)} 
+                        className="w-full pl-12 pr-4 py-4 bg-slate-50 md:bg-white border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-slds-brand/10 focus:border-slds-brand transition-all font-bold text-slate-700 placeholder:text-slate-300" 
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Confirmer le mot de passe</label>
+                    <div className="relative group">
+                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-slds-brand transition-colors" size={18} />
+                      <input 
+                        type="password" 
+                        required 
+                        placeholder="••••••••" 
+                        value={confirmPassword} 
+                        onChange={(e) => setConfirmPassword(e.target.value)} 
+                        className="w-full pl-12 pr-4 py-4 bg-slate-50 md:bg-white border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-slds-brand/10 focus:border-slds-brand transition-all font-bold text-slate-700 placeholder:text-slate-300" 
+                      />
+                    </div>
+                  </div>
+                  <button type="submit" disabled={isLoading} className="w-full bg-slds-brand text-white font-black py-4 rounded-2xl shadow-xl shadow-slds-brand/20 hover:bg-slds-brand-dark transition-all flex items-center justify-center gap-2 uppercase text-[11px] tracking-widest mt-8 disabled:opacity-70">
+                    {isLoading ? <><Loader2 size={16} className="animate-spin" /> Enregistrement...</> : <>Enregistrer le mot de passe <ArrowRight size={16} /></>}
+                  </button>
+                </form>
+              )}
+            </div>
+          ) : !isResetMode ? (
             <>
               <div className="mb-4 text-center animate-in fade-in slide-in-from-bottom-2">
                 {loginPhotoUrl && (

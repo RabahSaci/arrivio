@@ -59,10 +59,32 @@ const ContractManagement: React.FC<ContractManagementProps> = ({
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
   const [showAddInvoiceModal, setShowAddInvoiceModal] = useState<Contract | null>(null);
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
+  const [filterSignatureStatus, setFilterSignatureStatus] = useState<'ALL' | ContractSignatureStatus>('ALL');
   const [contractToDelete, setContractToDelete] = useState<string | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
   // État local pour les montants en cours de saisie (pour éviter les lags réseau à chaque caractère)
   const [localAmounts, setLocalAmounts] = useState<Record<string, string>>({});
+
+  // Synchroniser les montants locaux avec les props quand les données arrivent du serveur
+  React.useEffect(() => {
+    setLocalAmounts(prev => {
+      const next = { ...prev };
+      let hasChanged = false;
+      Object.keys(next).forEach(id => {
+        const session = sessions.find(s => s.id === id);
+        if (session) {
+          const propVal = (session.invoiceAmount || 0).toString();
+          const localVal = next[id];
+          // Si la valeur du serveur est identique à ce qu'on a saisi (numériquement), on peut libérer l'état local
+          if (parseFloat(propVal) === parseFloat(localVal)) {
+            delete next[id];
+            hasChanged = true;
+          }
+        }
+      });
+      return hasChanged ? next : prev;
+    });
+  }, [sessions]);
 
   const isAdminOrManager = activeRole === UserRole.ADMIN || activeRole === UserRole.MANAGER;
 
@@ -95,7 +117,14 @@ const ContractManagement: React.FC<ContractManagementProps> = ({
         (filterInvoiceStatus === 'PAID' && s.invoicePaid);
       return matchConsultant && matchStatus;
     });
-  }, [consultantSessions, filterConsultant, filterInvoiceStatus, showAddInvoiceModal]);
+  }, [consultantSessions, filterConsultant, filterInvoiceStatus, showAddInvoiceModal, selectedContractId]);
+
+  const filteredContracts = useMemo(() => {
+    return contracts.filter(c => {
+      const matchSignature = filterSignatureStatus === 'ALL' || c.signatureStatus === filterSignatureStatus;
+      return matchSignature;
+    });
+  }, [contracts, filterSignatureStatus]);
 
   const financials = useMemo(() => {
     const totalGlobalBudget = contracts.reduce((acc, c) => acc + (c.amount || 0), 0);
@@ -110,8 +139,8 @@ const ContractManagement: React.FC<ContractManagementProps> = ({
   };
 
   const handleUpdateSessionAmount = (session: Session, amountString: string) => {
-    const amount = parseFloat(amountString);
-    if (isNaN(amount)) return; // Don't update if not a valid number
+    const amount = amountString === '' ? 0 : parseFloat(amountString);
+    if (isNaN(amount) && amountString !== '') return; 
     onUpdateSession({ ...session, invoiceAmount: amount });
   };
 
@@ -172,14 +201,29 @@ const ContractManagement: React.FC<ContractManagementProps> = ({
             <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
               <TrendingUp size={16} /> Analyse des Engagements
             </h3>
-            {isAdminOrManager && (
-              <button onClick={() => { setEditingContract(null); setShowAddContractModal(true); }} className="slds-button slds-button-brand !bg-indigo-600 !shadow-indigo-100">
-                <Plus size={14} className="mr-2" /> Nouveau Contrat
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
+                <Filter size={12} className="text-slate-400" />
+                <select 
+                  value={filterSignatureStatus}
+                  onChange={(e) => setFilterSignatureStatus(e.target.value as any)}
+                  className="bg-transparent border-none text-[10px] font-black uppercase text-slate-500 focus:ring-0 cursor-pointer p-0 pr-6"
+                >
+                  <option value="ALL">Toutes signatures</option>
+                  {Object.entries(CONTRACT_SIGNATURE_STATUS_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              {isAdminOrManager && (
+                <button onClick={() => { setEditingContract(null); setShowAddContractModal(true); }} className="slds-button slds-button-brand !bg-indigo-600 !shadow-indigo-100">
+                  <Plus size={14} className="mr-2" /> Nouveau Contrat
+                </button>
+              )}
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {contracts.map(contract => {
+            {filteredContracts.map(contract => {
               // Calcul dynamique du solde basé sur les séances réelles liées
               const actualUsedSessions = sessions.filter(s => s.contractId === contract.id).length;
               const percentage = Math.round((actualUsedSessions / contract.totalSessions) * 100);
@@ -203,11 +247,12 @@ const ContractManagement: React.FC<ContractManagementProps> = ({
                         </div>
                       </div>
                       {contract.signatureStatus && (
-                        <div className={`inline-flex items-center mt-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border ${
-                          contract.signatureStatus === 'SIGNE' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 
-                          contract.signatureStatus === 'PAS_ENCORE_SIGNE' ? 'bg-slate-50 text-slate-400 border-slate-100' : 
-                          'bg-amber-50 text-amber-600 border-amber-100'
+                        <div className={`inline-flex items-center gap-1.5 mt-2 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border shadow-sm ${
+                          contract.signatureStatus === 'SIGNE' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 
+                          contract.signatureStatus === 'PAS_ENCORE_SIGNE' ? 'bg-slate-50 text-slate-400 border-slate-200' : 
+                          'bg-amber-50 text-amber-600 border-amber-200'
                         }`}>
+                          {contract.signatureStatus === 'SIGNE' ? <CheckCircle2 size={10} /> : <Clock size={10} />}
                           {CONTRACT_SIGNATURE_STATUS_LABELS[contract.signatureStatus]}
                         </div>
                       )}
@@ -309,11 +354,7 @@ const ContractManagement: React.FC<ContractManagementProps> = ({
                         onBlur={() => {
                           if (localAmounts[session.id] !== undefined) {
                             handleUpdateSessionAmount(session, localAmounts[session.id]);
-                            setLocalAmounts(prev => {
-                              const next = { ...prev };
-                              delete next[session.id];
-                              return next;
-                            });
+                            // On ne supprime plus immédiatement, l'useEffect s'en chargera quand les props seront à jour
                           }
                         }}
                         onKeyDown={(e) => {

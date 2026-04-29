@@ -338,6 +338,7 @@ export interface Client {
   marketingConsent?: string;
   isApproved?: string;
   isProfileCompleted?: string;
+  irccOriginCountry?: string;
   
   // Legacy/Internal fields
   originCountry: string;
@@ -359,6 +360,7 @@ export interface Client {
   notes: Note[];
   noShowRatio?: number;
   referrals?: Referral[];
+  createdAt?: string;
 }
 
 export interface Partner {

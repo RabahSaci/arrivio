@@ -204,6 +204,334 @@ export const IRCC_COUNTRIES = [
   "Yougoslavie", "Zambie", "Zimbabwe"
 ]; // 295 items derived from Pays.xlsx
 
+/**
+ * Mappage complet basé sur les données de production réelles.
+ * Chaque clé est un nom de pays tel qu'il peut apparaître dans les imports clients,
+ * et la valeur est le nom officiel du système IRCC.
+ */
+export const COUNTRY_MAPPING: Record<string, string> = {
+  // ============================================================
+  // AFRIQUE — Pays fréquents dans la base Arrivio
+  // ============================================================
+  // Afrique du Sud
+  "Afrique du Sud": "Afrique du Sud",
+  "South Africa": "Afrique du Sud",
+
+  // Algérie (avec corruption d'encodage potentielle)
+  "Algérie": "Algérie",
+  "Alg\u00e9rie": "Algérie",
+  "Alg?rie": "Algérie",
+  "Algeria": "Algérie",
+
+  // Angola
+  "Angola": "Angola",
+
+  // Arabie Saoudite
+  "Arabie saoudite": "Arabie Saoudite",
+  "Arabie Saoudite": "Arabie Saoudite",
+  "Saudi Arabia": "Arabie Saoudite",
+
+  // Azerbaïdjan
+  "Azerbaïdjan": "Azerbaïdjan",
+  "Azerbaidjan": "Azerbaïdjan",
+  "Azerbaijan": "Azerbaïdjan",
+
+  // Bénin
+  "Bénin": "Bénin, République Populaire de",
+  "B\u00e9nin": "Bénin, République Populaire de",
+  "B?nin": "Bénin, République Populaire de",
+  "Benin": "Bénin, République Populaire de",
+
+  // Burkina Faso
+  "Burkina Faso": "Burkina-Faso",
+  "Burkina": "Burkina-Faso",
+
+  // Burundi
+  "Burundi": "Burundi",
+
+  // Cameroun
+  "Cameroun": "République fédérale du Cameroun",
+  "Cameroon": "République fédérale du Cameroun",
+
+  // Djibouti
+  "Djibouti": "Djibouti, République de",
+
+  // Égypte
+  "Égypte": "Égypte",
+  "\u00c9gypte": "Égypte",
+  "?gypte": "Égypte",
+  "Egypte": "Égypte",
+  "Egypt": "Égypte",
+
+  // Émirats arabes unis
+  "Émirats arabes unis": "Émirats arabes unis",
+  "\u00c9mirats arabes unis": "Émirats arabes unis",
+  "Emirats arabes unis": "Émirats arabes unis",
+  "Émirats Arabes Unis": "Émirats arabes unis",
+  "Emirats Arabes Unis": "Émirats arabes unis",
+  "UAE": "Émirats arabes unis",
+  "United Arab Emirates": "Émirats arabes unis",
+
+  // Gabon
+  "Gabon": "Gabon, République du",
+
+  // Guinée
+  "Guinée": "Guinée, République de",
+  "Guin\u00e9e": "Guinée, République de",
+  "Guin?e": "Guinée, République de",
+  "Guinea": "Guinée, République de",
+
+  // Guinée équatoriale
+  "Guinée équatoriale": "Guinée équatoriale",
+  "Guinee equatoriale": "Guinée équatoriale",
+  "Equatorial Guinea": "Guinée équatoriale",
+
+  // Haïti
+  "Haïti": "Haïti",
+  "Ha\u00efti": "Haïti",
+  "Ha?ti": "Haïti",
+  "Haiti": "Haïti",
+
+  // Madagascar
+  "Madagascar": "Madagascar",
+
+  // Mali
+  "Mali": "Mali, République du",
+
+  // Maroc
+  "Maroc": "Maroc",
+  "Morocco": "Maroc",
+
+  // Maurice (Île Maurice)
+  "Maurice": "Maurice",
+  "Mauritius": "Maurice",
+
+  // Mauritanie
+  "Mauritanie": "Mauritanie",
+  "Mauritania": "Mauritanie",
+
+  // Niger
+  "Niger": "Niger, République du",
+
+  // Nigéria / Nigeria
+  "Nigéria": "Nigéria",
+  "Nigeria": "Nigéria",
+
+  // Ouganda
+  "Ouganda": "Ouganda",
+  "Uganda": "Ouganda",
+
+  // République démocratique du Congo
+  "République démocratique du Congo": "Congo, République Démocratique du",
+  "R\u00e9publique d\u00e9mocratique du Congo": "Congo, République Démocratique du",
+  "R?publique d?mocratique du Congo": "Congo, République Démocratique du",
+  "RD Congo": "Congo, République Démocratique du",
+  "RDC": "Congo, République Démocratique du",
+  "Congo-Kinshasa": "Congo, République Démocratique du",
+  "Democratic Republic of Congo": "Congo, République Démocratique du",
+  "DRC": "Congo, République Démocratique du",
+
+  // République du Congo (Congo-Brazzaville)
+  "République du Congo": "Congo, République Populaire du",
+  "R\u00e9publique du Congo": "Congo, République Populaire du",
+  "R?publique du Congo": "Congo, République Populaire du",
+  "Congo-Brazzaville": "Congo, République Populaire du",
+
+  // République dominicaine
+  "République dominicaine": "République Dominicaine",
+  "R\u00e9publique dominicaine": "République Dominicaine",
+  "R?publique dominicaine": "République Dominicaine",
+  "Dominican Republic": "République Dominicaine",
+
+  // Rwanda
+  "Rwanda": "Rwanda",
+
+  // Sénégal
+  "Sénégal": "Sénégal",
+  "S\u00e9n\u00e9gal": "Sénégal",
+  "S?n?gal": "Sénégal",
+  "Senegal": "Sénégal",
+
+  // Tchad
+  "Tchad": "Tchad, République du",
+  "Chad": "Tchad, République du",
+
+  // Togo
+  "Togo": "Togo, République de",
+
+  // Tunisie
+  "Tunisie": "Tunisie",
+  "Tunisia": "Tunisie",
+
+  // ============================================================
+  // AMÉRIQUES
+  // ============================================================
+  // États-Unis
+  "États-Unis": "États-Unis d'Amérique",
+  "\u00c9tats-Unis": "États-Unis d'Amérique",
+  "?tats-Unis": "États-Unis d'Amérique",
+  "Etats-Unis": "États-Unis d'Amérique",
+  "USA": "États-Unis d'Amérique",
+  "United States": "États-Unis d'Amérique",
+  "United States of America": "États-Unis d'Amérique",
+
+  // Colombie
+  "Colombie": "Colombie",
+  "Colombia": "Colombie",
+
+  // Guatemala
+  "Guatemala": "Guatemala",
+
+  // Venezuela
+  "Venezuela": "Venezuela",
+  "Vénézuela": "Venezuela",
+
+  // ============================================================
+  // ASIE
+  // ============================================================
+  // Chine
+  "Chine": "République populaire de Chine",
+  "China": "République populaire de Chine",
+  "RPC": "République populaire de Chine",
+
+  // Inde
+  "Inde": "Inde",
+  "India": "Inde",
+
+  // Iran
+  "Iran": "Iran",
+
+  // Liban
+  "Liban": "Liban",
+  "Lebanon": "Liban",
+
+  // Qatar
+  "Qatar": "Qatar",
+
+  // Turquie
+  "Turquie": "Turquie",
+  "Turkey": "Turquie",
+  "Türkiye": "Turquie",
+
+  // Vietnam
+  "Vietnam": "République socialiste du Vietnam",
+  "Viêt Nam": "République socialiste du Vietnam",
+  "Viet Nam": "République socialiste du Vietnam",
+
+  // Palestine
+  "Palestine": "Autorité palestinienne (Gaza/Cisjordanie)",
+  "Gaza": "Autorité palestinienne (Gaza/Cisjordanie)",
+
+  // Philippines
+  "Philippines": "Philippines",
+
+  // Corée du Sud / Nord
+  "Corée du Sud": "Corée, République de",
+  "Corée": "Corée, République de",
+  "Corée du Nord": "Corée, République Démocratique Populaire de",
+
+  // Taïwan
+  "Taïwan": "Taïwan",
+  "Taiwan": "Taïwan",
+
+  // Hong Kong
+  "Hong-Kong": "RAS Hong Kong",
+  "Hong Kong": "RAS Hong Kong",
+
+  // ============================================================
+  // EUROPE
+  // ============================================================
+  // Azerbaïdjan (déjà en Asie mais redondance utile)
+  "Irlande": "Irlande",
+  "Ireland": "Irlande",
+
+  "Italie": "Italie",
+  "Italy": "Italie",
+
+  "Belgique": "Belgique",
+  "Belgium": "Belgique",
+
+  "France": "France",
+
+  "Russie": "Russie",
+  "Russia": "Russie",
+
+  "Hongrie": "Hongrie",
+  "Hungary": "Hongrie",
+
+  "Royaume-Uni": "Angleterre",
+  "UK": "Angleterre",
+  "United Kingdom": "Angleterre",
+  "Great Britain": "Angleterre",
+
+  "Australie": "Australie",
+  "Australia": "Australie",
+
+  "Pays-Bas": "les Pays-Bas",
+  "Holland": "les Pays-Bas",
+  "Netherlands": "les Pays-Bas",
+
+  "Tchéquie": "Tchèque, République",
+  "République Tchèque": "Tchèque, République",
+  "Czech Republic": "Tchèque, République",
+
+  "Tanzanie": "République Unie de Tanzanie",
+  "Tanzania": "République Unie de Tanzanie",
+
+  "Soudan du Sud": "Soudan du Sud, Republique de",
+  "South Sudan": "Soudan du Sud, Republique de",
+};
+
+/**
+ * Normalise un nom de pays pour qu'il corresponde à la liste officielle IRCC.
+ * Stratégie multi-niveaux:
+ * 1. Mappage manuel (correspondances connues + variantes encodées)
+ * 2. Correspondance exacte dans IRCC_COUNTRIES
+ * 3. Correspondance normalisée (sans accents, insensible à la casse)
+ * 4. Correspondance partielle (si un terme IRCC est contenu dans la recherche)
+ */
+export const getIRCCCountry = (uploadedName: string | null | undefined): string => {
+  if (!uploadedName) return "Inconnu";
+  
+  const clean = uploadedName.trim();
+  if (!clean) return "Inconnu";
+
+  // Helper: normalise les accents et la casse
+  const normalize = (s: string) => s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    // Gère aussi les caractères Windows-1252 corrompus (?, ?, etc.)
+    .replace(/[?]/g, "")
+    .toLowerCase()
+    .trim();
+
+  const normalizedSearch = normalize(clean);
+
+  // 1. Mappage manuel exact
+  if (COUNTRY_MAPPING[clean]) return COUNTRY_MAPPING[clean];
+
+  // 2. Correspondance exacte IRCC
+  if (IRCC_COUNTRIES.includes(clean)) return clean;
+
+  // 3. Mappage manuel normalisé (accents et casse ignorés)
+  for (const [key, value] of Object.entries(COUNTRY_MAPPING)) {
+    if (normalize(key) === normalizedSearch) return value;
+  }
+
+  // 4. Correspondance normalisée dans IRCC_COUNTRIES
+  const irccMatch = IRCC_COUNTRIES.find(c => normalize(c) === normalizedSearch);
+  if (irccMatch) return irccMatch;
+
+  // 5. Correspondance partielle: le nom cherché est contenu dans un pays IRCC
+  // (ex: "Congo" → "Congo, République Démocratique du" ne sera pas choisi ici car ambigu)
+  // On cherche plutôt si un pays IRCC commence par le terme cherché
+  const startMatch = IRCC_COUNTRIES.find(c => normalize(c).startsWith(normalizedSearch) && normalizedSearch.length > 4);
+  if (startMatch) return startMatch;
+
+  // 6. Retourner le nom original (non trouvé mais mieux que vide)
+  return clean;
+};
+
 // --- EMPLOYMENT SLE CONSTANTS ---
 export const EMPLOYMENT_STATUS_CANADA = [
   "Sans emploi présentement",

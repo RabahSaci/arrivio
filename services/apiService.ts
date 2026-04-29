@@ -48,7 +48,12 @@ export const apiService = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    const data = await response.json();
+
+    // Safe JSON parse — empty body means server is down or crashed
+    const text = await response.text();
+    if (!text) throw new Error("Serveur inaccessible ou erreur réseau. Vérifiez que le serveur est démarré.");
+    const data = JSON.parse(text);
+
     if (!response.ok) throw new Error(data.error || "Erreur d'authentification");
     
     const formattedData = toCamel(data);
@@ -86,8 +91,31 @@ export const apiService = {
       headers,
       body: JSON.stringify({ currentPassword, newPassword }),
     });
+    const resData = await response.json();
+    if (!response.ok) throw new Error(resData.error || "Erreur lors du changement de mot de passe");
+    return resData;
+  },
+
+  async resetPasswordRequest(email) {
+    const response = await fetch(`${API_BASE_URL}/auth/reset-password-request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Erreur lors du changement de mot de passe");
+    if (!response.ok) throw new Error(data.error || "Erreur lors de la demande de réinitialisation");
+    return data;
+  },
+
+  async recoveryUpdatePassword(newPassword) {
+    const headers = getHeaders();
+    const response = await fetch(`${API_BASE_URL}/auth/recovery-update-password`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ newPassword }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Erreur lors de la réinitialisation du mot de passe");
     return data;
   },
 
@@ -281,6 +309,7 @@ export const apiService = {
       inbound_referral_date: c.inboundReferralDate,
       referral_date: c.referralDate,
       questions: c.questions,
+      ircc_origin_country: c.irccOriginCountry,
 
       // Compatibility/Legacy
       origin_country: c.originCountry,

@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { Client, Mentor, Session, UserRole, Partner, ReferralStatus, ReferralStatus as StatusType, SessionCategory, AttendanceStatus } from '../types';
 import Pagination from '../components/Pagination';
-import { STATUS_COLORS } from '../constants';
+import { STATUS_COLORS, getIRCCCountry } from '../constants';
 import ConfirmModal from '../components/ConfirmModal';
 import { apiService } from '../services/apiService';
 import { 
@@ -167,6 +167,9 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
       
       return true;
     }).sort((a, b) => {
+      const dateA = new Date(a.createdAt || 0).getTime();
+      const dateB = new Date(b.createdAt || 0).getTime();
+      if (dateB !== dateA) return dateB - dateA;
       return new Date(b.registrationDate || 0).getTime() - new Date(a.registrationDate || 0).getTime();
     });
   }, [clients, searchTerm, filterStatus, filterCity, filterCountry, filterStartDate, filterEndDate, filterSessionsRange, filterDeadline, activeRole, currentPartnerId, sessionsByClient]);
@@ -379,6 +382,7 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
               isProfileCompleted: getValue(row, idx.profile),
               inboundReferralDate: formatDate(row[idx.inboundRefDate]),
               referralDate: null, // Initialement vide pour un nouveau client
+              irccOriginCountry: getIRCCCountry(getValue(row, idx.res) || getValue(row, idx.birthCountry)),
               
               // Fallbacks compatibilité
               originCountry: getValue(row, idx.birthCountry) || getValue(row, idx.res) || 'Inconnu',
@@ -714,23 +718,23 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
                         
                         let badge = null;
                         if (diffDays < 0) {
-                          badge = <span className="ml-1.5 px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[8px] font-black uppercase">Arrivé</span>;
+                          badge = <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[8px] font-black uppercase">Arrivé</span>;
                         } else if (diffDays === 0) {
-                          badge = <span className="ml-1.5 px-1.5 py-0.5 rounded bg-red-100 text-red-600 text-[8px] font-black uppercase">Aujourd'hui</span>;
+                          badge = <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-600 text-[8px] font-black uppercase">Aujourd'hui</span>;
                         } else if (diffDays <= 7) {
-                          badge = <span className="ml-1.5 px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-100 text-[8px] font-black uppercase">Dans {diffDays} j.</span>;
+                          badge = <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-100 text-[8px] font-black uppercase">Dans {diffDays} j.</span>;
                         } else if (diffDays <= 30) {
-                          badge = <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100 text-[8px] font-black uppercase">Dans {diffDays} j.</span>;
+                          badge = <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100 text-[8px] font-black uppercase">Dans {diffDays} j.</span>;
                         } else {
                           const months = Math.floor(diffDays / 30);
-                          badge = <span className="ml-1.5 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-100 text-[8px] font-black uppercase">Dans {months} m.</span>;
+                          badge = <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-100 text-[8px] font-black uppercase">Dans {months} m.</span>;
                         }
 
                         const formattedDate = arrivalDate.toLocaleDateString('fr-FR');
 
                         return (
-                          <div className="flex items-center">
-                            <span>{formattedDate}</span>
+                          <div className="flex flex-col gap-1 items-start">
+                            <span className="font-bold">{formattedDate}</span>
                             {badge}
                           </div>
                         );

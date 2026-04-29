@@ -1,6 +1,7 @@
 
 import * as XLSX from 'xlsx';
 import { Session, Client } from '../types';
+import { getIRCCCountry } from '../constants';
 
 // ============================================================
 // EMPLOYMENT EXPORT SERVICE — Conforme gabarit IRCC VER 1329
@@ -50,7 +51,7 @@ function sessionToRow(session: Session, clients: Client[]): string[] {
     'L5B3C4', // Col 10: Code postal organisation
     '', // Col 11: Pays organisation (vide selon demande utilisateur)
     (client as any)?.postalCode || '', // Col 12: Code postal client
-    session.clientLocationCountry || '', // Col 13
+    getIRCCCountry(session.clientLocationCountry || (client as any)?.irccOriginCountry || client?.residenceCountry || client?.originCountry || 'Canada'), // Col 13
     session.languageUsed || 'Français', // Col 14
     
     // SLE Specifiques

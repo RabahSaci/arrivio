@@ -387,11 +387,12 @@ const CalendarView: React.FC<CalendarViewProps> = ({ clients, sessions, partners
 
       {/* Calendrier Grid SLDS */}
       <div className="slds-card overflow-hidden">
-        <div className="p-4 border-b border-slds-border flex items-center justify-between bg-slds-bg">
-          <h2 className="text-lg font-bold text-slds-text-primary capitalize">
+        <div className="p-4 border-b border-slds-border grid grid-cols-1 md:grid-cols-3 items-center bg-slds-bg gap-4">
+          <div className="hidden md:block" /> {/* Spacer pour équilibrer le titre au centre */}
+          <h2 className="text-lg font-bold text-slds-text-primary capitalize text-center whitespace-nowrap">
             {currentMonth.toLocaleString('fr-FR', { month: 'long', year: 'numeric' })}
           </h2>
-          <div className="flex gap-2">
+          <div className="flex gap-2 justify-center md:justify-end">
             <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1.5 hover:bg-white rounded text-slds-text-secondary"><ChevronLeft size={20} /></button>
             <button onClick={() => setCurrentMonth(new Date())} className="px-3 py-1 text-xs font-bold text-slds-text-secondary hover:text-slds-brand">Aujourd'hui</button>
             <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1.5 hover:bg-white rounded text-slds-text-secondary"><ChevronRight size={20} /></button>

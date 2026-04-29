@@ -111,8 +111,12 @@ const contractSchema = z.object({
   total_sessions: z.union([z.number(), z.string().transform(v => parseInt(v))]).refine(v => v > 0, "Le nombre doit être > 0"),
   used_sessions: z.number().default(0),
   start_date: z.string(),
-  end_date: z.string()
-}).refine(data => new Date(data.end_date) >= new Date(data.start_date), {
+  end_date: z.string(),
+  amount: z.number().optional().default(0),
+  status: z.string().optional().default('ACTIVE'),
+  service_type: z.string().optional(),
+  signature_status: z.string().optional().default('PAS_ENCORE_SIGNE')
+}).passthrough().refine(data => new Date(data.end_date) >= new Date(data.start_date), {
   message: "La date de fin doit être après le début",
   path: ["end_date"]
 });
@@ -337,14 +341,11 @@ app.get('/api/partners', async (req, res) => {
 });
 
 // 2. AUTHENTICATION + LOGGING MIDDLEWARE
-// Runs for all /api/* requests EXCEPT those handled by the explicit public routes above
 app.use('/api', (req, res, next) => {
   console.info(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.originalUrl}`);
   
-  // Only /auth/login is truly public (no token needed)
-  // GET /api/health, GET /api/app_settings, GET /api/partners are handled
-  // by explicit routes BEFORE this middleware and never reach here.
-  const publicRoutes = ['/auth/login'];
+  // Public routes — no token required
+  const publicRoutes = ['/auth/login', '/auth/reset-password-request'];
   if (publicRoutes.includes(req.path)) {
     req.sb = supabaseAdmin;
     return next();
@@ -367,17 +368,12 @@ app.post('/api/auth/login', async (req, res) => {
     const userId = data.user.id;
 
     // --- SECURITY DETECTION (Impossible Travel & New Device) ---
-    // Runs in the background (fire and forget) to not slow down user
     (async () => {
       try {
-        // 1. Geolocation
         const geoRes = await fetch(`http://ip-api.com/json/${ip.includes('::') ? '' : ip}`);
         const geoData = await geoRes.json();
-        
         if (geoData.status === 'success') {
           const { lat, lon, city, country } = geoData;
-
-          // 2. Fetch last login
           const { data: lastLogin } = await supabaseAdmin
             .from('auth_login_history')
             .select('*')
@@ -387,13 +383,10 @@ app.post('/api/auth/login', async (req, res) => {
             .single();
 
           if (lastLogin) {
-            // 3. Speed calculation
             const dist = calculateDistance(lat, lon, parseFloat(lastLogin.latitude), parseFloat(lastLogin.longitude));
             const timeDiffHours = (Date.now() - new Date(lastLogin.created_at).getTime()) / (1000 * 60 * 60);
             const speed = timeDiffHours > 0 ? dist / timeDiffHours : 0;
-
             console.info(`[SECURITY] Travel check for ${email}: ${dist.toFixed(0)}km in ${timeDiffHours.toFixed(2)}h (${speed.toFixed(0)}km/h)`);
-
             if (speed > 300) {
               await supabaseAdmin.from('activity_logs').insert([{
                 user_id: userId,
@@ -406,39 +399,57 @@ app.post('/api/auth/login', async (req, res) => {
           } else {
             console.info(`[SECURITY] First tracked login for ${email}`);
           }
-
-          // 4. Save to history
           await supabaseAdmin.from('auth_login_history').insert([{
-            user_id: userId,
-            ip_address: ip,
-            user_agent: userAgent,
-            city,
-            country,
-            latitude: lat,
-            longitude: lon
+            user_id: userId, ip_address: ip, user_agent: userAgent, city, country, latitude: lat, longitude: lon
           }]);
         }
-      } catch (secErr) {
-        console.error('[SECURITY ERROR]', secErr.message);
-      }
+      } catch (secErr) { console.error('[SECURITY ERROR]', secErr.message); }
     })();
-    // ----------------------------------------------------------
 
-    // Fetch profile
     const { data: profile } = await supabaseAdmin
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single();
 
-    res.json({
-      user: data.user,
-      session: data.session,
-      profile: profile
-    });
+    res.json({ user: data.user, session: data.session, profile: profile });
   } catch (err) {
     console.error('[LOGIN ERROR]', err.message);
     res.status(500).json({ error: "Erreur lors de l'authentification" });
+  }
+});
+
+// 1b. Password Reset Request Proxy
+app.post('/api/auth/reset-password-request', async (req, res) => {
+  const { email } = req.body;
+  try {
+    const { error } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
+      redirectTo: `${req.headers.origin}/`
+    });
+    if (error) throw error;
+    res.json({ message: "Email de récupération envoyé" });
+  } catch (err) {
+    console.error('[RESET REQUEST ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 1c. Recovery Update Password (No current password required)
+app.post('/api/auth/recovery-update-password', async (req, res) => {
+  const { newPassword } = req.body;
+  try {
+    if (!req.user) return res.status(401).json({ error: "Session non valide" });
+
+    // Update password using the admin client by user ID
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(req.user.id, { 
+      password: newPassword 
+    });
+    if (error) throw error;
+
+    res.json({ message: "Mot de passe réinitialisé avec succès" });
+  } catch (err) {
+    console.error('[RECOVERY UPDATE ERROR]', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -579,6 +590,15 @@ app.get('/api/sessions', async (req, res) => {
     }
     if (req.query.endDate) {
       query = query.lte('date', req.query.endDate);
+    }
+    if (req.query.type) {
+      query = query.eq('type', req.query.type);
+    }
+    if (req.query.category) {
+      query = query.eq('category', req.query.category);
+    }
+    if (req.query.advisor_id) {
+      query = query.eq('advisor_id', req.query.advisor_id);
     }
 
     query = query.order('date', { ascending: false });
@@ -1162,10 +1182,53 @@ app.put('/api/:table/:id', async (req, res) => {
 
 async function handleUpdate(table, id, req, res) {
   try {
+    console.info(`[DEBUG] handleUpdate called for table: ${table}, id: ${id}`);
+    console.info(`[DEBUG] Request body:`, JSON.stringify(req.body, null, 2));
+    
     // Always use supabaseAdmin for mutations on protected tables (bypasses RLS)
     const client = getMutationClient(table, req.sb);
     
     let body = { ...req.body };
+
+    // Strip fields that may not exist in the clients table schema
+    if (table === 'clients') {
+      const knownClientFields = [
+        // Identity
+        'first_name', 'last_name', 'email', 'phone', 'phone_number', 'gender', 'birth_date',
+        'client_code', 'registration_date', 'inbound_referral_date',
+        // Immigration
+        'iuc_crp_number', 'residence_country', 'birth_country', 'origin_country',
+        'participated_immigration_program', 'immigration_type', 'ircc_origin_country',
+        'linked_account', 'main_applicant',
+        // Family
+        'spouse_full_name', 'spouse_birth_date', 'spouse_email', 'spouse_iuc_crp_number',
+        'children_count', 'children_birth_dates', 'children_full_names',
+        // Destination
+        'chosen_province', 'destination_change', 'chosen_city', 'destination_city',
+        'arrival_date_approx', 'arrival_date_confirmed', 'arrival_date', 'establishment_reason',
+        // Employment
+        'profession', 'current_job', 'current_employment_status', 'current_noc_group',
+        'current_profession_group', 'intended_employment_status_canada',
+        'intended_profession_group_canada', 'intention_credentials_recognition',
+        'intention_accreditation_before_arrival', 'done_eca',
+        // Education
+        'education_level', 'specialization', 'training_completion_date',
+        // Language
+        'english_level', 'want_english_info', 'french_level', 'want_french_info',
+        // Marketing & consent
+        'referral_source', 'marketing_consent', 'is_approved', 'is_profile_completed',
+        'consent_shared', 'consent_external_referral', 'is_unsubscribed',
+        // Status & referrals
+        'status', 'needs', 'questions',
+        'assigned_partner_id', 'secondary_partner_ids',
+        'referred_by_id', 'assigned_mentor_id',
+        'referral_date', 'acknowledged_at', 'contacted_at', 'closed_at',
+      ];
+      body = Object.fromEntries(
+        Object.entries(body).filter(([key]) => knownClientFields.includes(key))
+      );
+      console.info(`[UPDATE clients] Sanitized body keys: ${Object.keys(body).join(', ')}`);
+    }
 
     // Strip fields that may not exist in the sessions table schema - Allow both cases
     if (table === 'sessions') {

@@ -388,7 +388,7 @@ const App: React.FC = () => {
           console.warn(`[fetchData] Failed to fetch '${table.name}'`, e);
         } finally {
           completed++;
-          setLoadingProgress(Math.round((completed / tables.length) * 100));
+          setLoadingProgress(Math.round((completed / (tables.length || 1)) * 100) || 0);
         }
       }));
 
@@ -550,11 +550,12 @@ const App: React.FC = () => {
         end_date: c.endDate,
         status: c.status,
         amount: c.amount,
-        service_type: c.serviceType
+        service_type: c.serviceType,
+        signature_status: c.signatureStatus
       });
       if (error) throw error;
       await logActivity('CREATE', 'CONTRACT', `Nouveau contrat pour ${c.consultantName}`);
-      addNotification(NotificationType.SUCCESS, "Contrat ajouté", `Le contrat pour ${c.consultantName} est activé.`);
+      addNotification(NotificationType.SUCCESS, "Contrat créé", `Le contrat pour ${c.consultantName} a été ajouté avec succès.`);
       fetchData();
     } catch (err: any) {
       addNotification(NotificationType.SYSTEM, "Erreur Contrat", err.message);
@@ -573,7 +574,7 @@ const App: React.FC = () => {
             />
           </div>
           <div className="progress-text-container">
-            <div className="progress-percentage">{loadingProgress}%</div>
+            <div className="progress-percentage">{(loadingProgress || 0)}%</div>
             <div className="progress-label">Synchronisation</div>
           </div>
         </div>
@@ -617,8 +618,8 @@ const App: React.FC = () => {
               const oldClient = clients.find(c => c.id === u.id);
               const delta = getDelta(oldClient, u);
               
-              // Omit nested entities that are handled separately
-              const { id, notes, referrals, ...updateData } = u;
+              // Omit nested entities and computed frontend-only fields
+              const { id, notes, referrals, noShowRatio, ...updateData } = u;
               
               await apiService.update('clients', id, updateData); 
               
@@ -717,13 +718,16 @@ const App: React.FC = () => {
                 end_date: c.endDate,
                 status: c.status,
                 amount: c.amount,
-                service_type: c.serviceType
+                service_type: c.serviceType,
+                signature_status: c.signatureStatus
               }); 
               
               await logActivity('UPDATE', 'CONTRACT', `Modification du contrat de ${c.consultantName}`, delta);
+              addNotification(NotificationType.SUCCESS, "Contrat mis à jour", `Le contrat de ${c.consultantName} a été modifié.`);
               fetchData(); 
             } catch (err: any) {
-              console.error("Contract update log error", err);
+              console.error("Contract update error", err);
+              addNotification(NotificationType.SYSTEM, "Erreur Mise à jour", err.message || "Impossible de modifier le contrat.");
               fetchData();
             }
           }} 
@@ -876,6 +880,7 @@ const App: React.FC = () => {
       onClearAllNotifications={() => setNotifications(prev => prev.map(n => ({ ...n, isRead: true })))}
       onNotificationSelect={(n) => { if (n.targetId) { setSelectedClientId(n.targetId); setActiveTab('clients'); } }}
       tasks={tasks}
+      partners={partners}
     >
       {renderContent()}
     </Layout>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserRole, Notification as AppNotification, NotificationType, WorkflowTask, TaskStatus } from '../types';
+import { UserRole, Notification as AppNotification, NotificationType, WorkflowTask, TaskStatus, Partner, Profile } from '../types';
 import { ROLE_LABELS } from '../constants';
 import { apiService } from '../services/apiService';
 import NotificationCenter from './NotificationCenter';
@@ -35,7 +35,8 @@ import {
   ZapOff,
   ClipboardList,
   User,
-  Save
+  Save,
+  Edit2
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -54,6 +55,7 @@ interface LayoutProps {
   userProfile?: Profile;
   onUpdateAccount?: (profile: Profile) => Promise<void>;
   tasks?: WorkflowTask[];
+  partners?: Partner[];
 }
 
 const Layout: React.FC<LayoutProps> = ({ 
@@ -70,7 +72,8 @@ const Layout: React.FC<LayoutProps> = ({
   currentUserName,
   userProfile,
   onUpdateAccount,
-  tasks = []
+  tasks = [],
+  partners = []
 }) => {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
@@ -504,24 +507,41 @@ const Layout: React.FC<LayoutProps> = ({
               {!isEditingProfile ? (
                 <div className="space-y-6">
                   {[
-                    { label: 'Prénom', value: profileFirstName },
-                    { label: 'Nom', value: profileLastName },
-                    { label: 'Poste / Fonction', value: profilePosition },
-                  ].map((f, i) => (
-                    <div key={i} className="group flex flex-col gap-1 relative">
+                    { id: 'firstName', label: 'Prénom', value: profileFirstName, editable: true },
+                    { id: 'lastName', label: 'Nom', value: profileLastName, editable: true },
+                    { id: 'position', label: 'Poste / Fonction', value: profilePosition, editable: true },
+                  ].map((f) => (
+                    <div key={f.id} className="group flex flex-col gap-1 relative">
                        <div className="flex items-center gap-2">
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">{f.label}</label>
-                        <button 
-                          onClick={() => setIsEditingProfile(true)}
-                          className="opacity-0 group-hover:opacity-100 p-1 -m-1 text-slate-300 hover:text-blue-600 transition-all"
-                          title="Modifier"
-                        >
-                          <Edit2 size={10} />
-                        </button>
+                        {f.editable && (
+                          <button 
+                            onClick={() => setIsEditingProfile(true)}
+                            className="opacity-0 group-hover:opacity-100 p-1 -m-1 text-slate-300 hover:text-blue-600 transition-all"
+                            title="Modifier"
+                          >
+                            <Edit2 size={10} />
+                          </button>
+                        )}
                        </div>
-                       <p className="text-base font-bold text-slate-800">{f.value || '---'}</p>
+                       <p className={`text-base font-bold ${f.editable ? 'text-slate-800' : 'text-slate-500'}`}>{f.value || '---'}</p>
                     </div>
                   ))}
+                  
+                  <div className="pt-4 border-t border-slate-100 space-y-4">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Rôle Arrivio</label>
+                      <p className="text-sm font-bold text-slds-brand">{userProfile ? ROLE_LABELS[userProfile.role] : '---'}</p>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Organisation Affiliée</label>
+                      <p className="text-sm font-bold text-slate-600">
+                        {userProfile?.partnerId 
+                          ? (partners.find(p => p.id === userProfile.partnerId)?.name || 'Chargement...') 
+                          : 'Non affilié'}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <form onSubmit={handleProfileUpdate} className="space-y-6 animate-in fade-in duration-300">

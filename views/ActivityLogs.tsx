@@ -78,6 +78,9 @@ const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, clients, activeRole, 
 
   const filteredLogs = useMemo(() => {
     return logs.filter(log => {
+      // Sécurité : les conseillers ne voient que leurs propres activités
+      if (!isAdmin && log.userId !== currentUserId) return false;
+
       if (filterUser !== 'ALL' && log.userId !== filterUser) return false;
       if (filterAction !== 'ALL' && log.actionType !== filterAction) return false;
       if (filterEntity !== 'ALL' && log.entityType !== filterEntity) return false;

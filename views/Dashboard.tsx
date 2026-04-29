@@ -338,7 +338,7 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, partners, sessions, acti
               <div>
                 <p className="text-[10px] font-bold text-slds-text-secondary uppercase tracking-widest">Taux de No-Show Global</p>
                 <p className={`text-3xl font-bold ${sessionStats.noShowRate > 20 ? 'text-slds-error' : 'text-slds-success'}`}>
-                  {sessionStats.noShowRate}%
+                  {(sessionStats.noShowRate || 0)}%
                 </p>
               </div>
             </div>

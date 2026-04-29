@@ -15,7 +15,8 @@ import {
   ChevronDown,
   Inbox,
   LayoutDashboard,
-  CheckCircle,
+  ClipboardList,
+  CheckCircle, 
   X
 } from 'lucide-react';
 
@@ -146,8 +147,8 @@ const TaskDashboard: React.FC<TaskDashboardProps> = ({
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
             <div>
               <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
-                <LayoutDashboard className="text-blue-600" size={32} />
-                TABLEAU DE BORD
+                <ClipboardList className="text-blue-600" size={32} />
+                MES TÂCHES
               </h1>
               <p className="text-slate-500 font-medium mt-1">Gestion et suivi de vos tâches opérationnelles</p>
             </div>
@@ -237,6 +238,18 @@ const TaskDashboard: React.FC<TaskDashboardProps> = ({
       {/* Task List */}
       <div className="flex-1 overflow-y-auto p-8">
         <div className="max-w-7xl mx-auto">
+
+          {/* Pagination — Haut */}
+          {totalPages > 1 && (
+            <div className="mb-6 bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
+              <Pagination 
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
+            </div>
+          )}
+
           {paginatedTasks.length === 0 ? (
             <div className="bg-white rounded-3xl p-20 border border-slate-100 flex flex-col items-center justify-center text-center shadow-sm">
               <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6">

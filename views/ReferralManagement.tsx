@@ -122,12 +122,12 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
               : ReferralStatus.REFERRED;
 
             const dateKey = Object.keys(row).find(k => k.toLowerCase().includes('date') || k.toLowerCase().includes('transfert'));
-            let referralDate = new Date().toISOString();
+            let referralDate = new Date().toISOString().split('T')[0];
             
             if (row[dateKey || '']) {
               const parsedDate = new Date(row[dateKey || '']);
               if (!isNaN(parsedDate.getTime())) {
-                referralDate = parsedDate.toISOString();
+                referralDate = parsedDate.toISOString().split('T')[0];
               }
             }
 

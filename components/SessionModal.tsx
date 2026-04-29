@@ -21,7 +21,8 @@ import {
   EMPLOYMENT_TARGET_TYPES,
   EMPLOYMENT_SECTORS,
   EMPLOYMENT_TOPICS,
-  EMPLOYMENT_REFERRALS
+  EMPLOYMENT_REFERRALS,
+  getIRCCCountry
 } from '../constants';
 import ParticipantManager from './ParticipantManager';
 import { apiService } from '../services/apiService';
@@ -47,7 +48,8 @@ import {
   UserX,
   Plus,
   Loader2,
-  Briefcase
+  Briefcase,
+  Globe
 } from 'lucide-react';
 import { CNP_CODES } from '../constants/cnp_codes';
 
@@ -220,6 +222,9 @@ const SessionModal: React.FC<SessionModalProps> = ({
   const [formDiscussedNeeds, setFormDiscussedNeeds] = useState<string>('');
   const [formActions, setFormActions] = useState<string>('');
   const [formNotes, setFormNotes] = useState<string>('');
+  
+  const DRAFT_KEY = `arrivio_session_draft_${currentUserId || 'guest'}`;
+  const STICKY_KEY = `arrivio_session_sticky_${currentUserId || 'guest'}`;
 
   const wasOpen = useRef(false);
 
@@ -228,6 +233,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
     if (isOpen && !wasOpen.current) {
       wasOpen.current = true;
       if (session) {
+        // ... (existing edit logic)
         setCategory(session.category);
         setFormDate(session.date);
         setFormFacilitatorType(session.facilitatorType);
@@ -247,16 +253,13 @@ const SessionModal: React.FC<SessionModalProps> = ({
             setShowEmployment(true);
           }
           
-          // Hydrate full NAARS data on demand
           setIsHydrating(true);
-          // Pre-fill activity fields from already-loaded session data
           setFormDiscussedNeeds(session.discussedNeeds || '');
           setFormActions(session.actions || '');
           setFormNotes(session.notes || '');
           apiService.getById('sessions', session.id)
             .then(fullSession => {
               setNaarsData(fullSession);
-              // Update activity fields with fully loaded data
               setFormDiscussedNeeds(fullSession.discussedNeeds || '');
               setFormActions(fullSession.actions || '');
               setFormNotes(fullSession.notes || '');
@@ -264,7 +267,6 @@ const SessionModal: React.FC<SessionModalProps> = ({
               setSelectedTargetClientTypes(fullSession.targetClientTypes || []);
               setClientLocationCountry(fullSession.clientLocationCountry || '');
               setProgrammingType(fullSession.programmingType || 'Service standard');
-              // Activer les modules si des données sont déjà présentes
               if (fullSession.lifeNeedsInd || fullSession.languageNeedsInd || fullSession.employmentNeedsInd || fullSession.lifeAssetInd) {
                 setShowNAARS(true);
               }
@@ -279,35 +281,128 @@ const SessionModal: React.FC<SessionModalProps> = ({
           setNaarsData(session || {});
         }
       } else {
-        setCategory(initialCategory);
-        setFormDate(initialDate || new Date().toISOString().split('T')[0]);
-        setFormFacilitatorType(FacilitatorType.CONSULTANT);
-        setSelectedConsultantName('');
-        setSelectedContractId('');
-        setModalParticipantIds(initialParticipantIds || []);
-        setSelectedClient(initialParticipantIds?.length ? (clients || []).find(c => c.id === initialParticipantIds[0]) || null : null);
-        setAttendance(AttendanceStatus.PRESENT);
-        setSelectedSubjects([]);
-        setSelectedTargetClientTypes([]);
-        setSessionType(SessionType.ESTABLISHMENT);
-        setProgrammingType('Service standard');
-        setFormDiscussedNeeds('');
-        setFormActions('');
-        setFormNotes('');
-        setNaarsData({
-          formalFollowUpInd: false,
-          lifeNeedsInd: true,
-          formatRemoteStaffInd: true,
-          formatInPersonInd: false,
-          formatRemoteSelfInd: false,
-          formatRemoteEmailTextPhoneInd: false,
-        });
+        // Tentative de récupération d'un brouillon local
+        const draftStr = localStorage.getItem(DRAFT_KEY);
+        let draft = null;
+        if (draftStr) {
+          try {
+            draft = JSON.parse(draftStr);
+          } catch (e) { console.warn("Failed to parse draft", e); }
+        }
+
+        if (draft) {
+          // CRITICAL: Never let the draft override the intended category.
+          // If the draft was saved for a GROUP session and we're opening an INDIVIDUAL one (or vice-versa),
+          // discard the draft entirely to avoid showing the wrong form.
+          if (draft.category && draft.category !== initialCategory) {
+            localStorage.removeItem(DRAFT_KEY);
+            draft = null;
+          }
+        }
+
+        if (draft) {
+          setCategory(initialCategory); // Always use initialCategory — never the draft's category
+          setFormDate(draft.formDate || initialDate || new Date().toISOString().split('T')[0]);
+          setFormFacilitatorType(draft.formFacilitatorType || FacilitatorType.CONSULTANT);
+          setSelectedConsultantName(draft.selectedConsultantName || '');
+          setSelectedContractId(draft.selectedContractId || '');
+          setModalParticipantIds(draft.modalParticipantIds || initialParticipantIds || []);
+          setSelectedClient(draft.selectedClientId ? (clients || []).find(c => c.id === draft.selectedClientId) || null : (initialParticipantIds?.length ? (clients || []).find(c => c.id === initialParticipantIds[0]) || null : null));
+          setAttendance(draft.attendance || AttendanceStatus.PRESENT);
+          setSelectedSubjects(draft.selectedSubjects || []);
+          setSelectedTargetClientTypes(draft.selectedTargetClientTypes || []);
+          setSessionType(draft.sessionType || SessionType.ESTABLISHMENT);
+          setProgrammingType(draft.programmingType || 'Service standard');
+          setFormDiscussedNeeds(draft.formDiscussedNeeds || '');
+          setFormActions(draft.formActions || '');
+          setFormNotes(draft.formNotes || '');
+          setNaarsData(draft.naarsData || { formalFollowUpInd: false, lifeNeedsInd: true });
+          if (draft.showNAARS) setShowNAARS(true);
+          if (draft.showEmployment) setShowEmployment(true);
+        } else {
+          // Si pas de brouillon, on regarde les champs "collants" (dernières valeurs utilisées)
+          const stickyStr = localStorage.getItem(STICKY_KEY);
+          let sticky = null;
+          if (stickyStr) {
+            try {
+              sticky = JSON.parse(stickyStr);
+            } catch (e) {}
+          }
+
+          setCategory(initialCategory);
+          setFormDate(initialDate || new Date().toISOString().split('T')[0]);
+          setFormFacilitatorType(sticky?.formFacilitatorType || FacilitatorType.CONSULTANT);
+          setSelectedConsultantName(sticky?.selectedConsultantName || '');
+          setSelectedContractId('');
+          setModalParticipantIds(initialParticipantIds || []);
+          setSelectedClient(initialParticipantIds?.length ? (clients || []).find(c => c.id === initialParticipantIds[0]) || null : null);
+          setAttendance(AttendanceStatus.PRESENT);
+          setSelectedSubjects([]);
+          setSelectedTargetClientTypes([]);
+          setSessionType(sticky?.sessionType || SessionType.ESTABLISHMENT);
+          setProgrammingType(sticky?.programmingType || 'Service standard');
+          setFormDiscussedNeeds('');
+          setFormActions('');
+          setFormNotes('');
+          setNaarsData({
+            formalFollowUpInd: false,
+            lifeNeedsInd: true,
+            formatRemoteStaffInd: true,
+            formatInPersonInd: false,
+            formatRemoteSelfInd: false,
+            formatRemoteEmailTextPhoneInd: false,
+          });
+        }
       }
     } else if (!isOpen) {
       wasOpen.current = false;
       setIsHydrating(false);
     }
-  }, [isOpen, session, initialCategory, initialDate]); // On retire clients des dépendances pour éviter les resets intempestifs
+  }, [isOpen, session, initialCategory, initialDate]);
+
+  // Persistance du brouillon (Auto-save)
+  useEffect(() => {
+    if (isOpen && !isEditing) {
+      const draftData = {
+        category,
+        formDate,
+        formFacilitatorType,
+        selectedConsultantName,
+        selectedContractId,
+        modalParticipantIds,
+        selectedClientId: selectedClient?.id,
+        attendance,
+        selectedSubjects,
+        selectedTargetClientTypes,
+        sessionType,
+        programmingType,
+        naarsData,
+        formDiscussedNeeds,
+        formActions,
+        formNotes,
+        showNAARS,
+        showEmployment
+      };
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draftData));
+    }
+  }, [
+    isOpen, isEditing, category, formDate, formFacilitatorType, 
+    selectedConsultantName, selectedContractId, modalParticipantIds, 
+    selectedClient, attendance, selectedSubjects, selectedTargetClientTypes, 
+    sessionType, programmingType, naarsData, formDiscussedNeeds, formActions, 
+    formNotes, showNAARS, showEmployment, DRAFT_KEY
+  ]);
+
+  // Auto-population du pays IRCC dans le champ de formulaire
+  useEffect(() => {
+    if (selectedClient && !isEditing) {
+      const irccCountry = selectedClient.irccOriginCountry ||
+        getIRCCCountry(selectedClient.residenceCountry || selectedClient.originCountry);
+      if (irccCountry && irccCountry !== 'Inconnu') {
+        setClientLocationCountry(irccCountry);
+      }
+    }
+  }, [selectedClient, isEditing]);
 
   const isGroup = category === SessionCategory.GROUP;
 
@@ -318,6 +413,14 @@ const SessionModal: React.FC<SessionModalProps> = ({
       return (partners || []).filter(p => p.type === PartnerType.INTERNAL || p.type === PartnerType.EXTERNAL);
     }
   }, [partners, formFacilitatorType]);
+
+  // Pays IRCC du client sélectionné (affiché et verrouillé dans le formulaire)
+  const irccDisplayCountry = useMemo(() => {
+    if (!selectedClient) return null;
+    const country = selectedClient.irccOriginCountry ||
+      getIRCCCountry(selectedClient.residenceCountry || selectedClient.originCountry);
+    return (country && country !== 'Inconnu') ? country : null;
+  }, [selectedClient]);
 
   const activeContractsForConsultant = useMemo(() => {
     if (!selectedConsultantName || formFacilitatorType !== FacilitatorType.CONSULTANT) return [];
@@ -483,8 +586,12 @@ const SessionModal: React.FC<SessionModalProps> = ({
 
         // 2. Population cible
         if ((naarsData as any).employmentTargetInd) {
-          if (!(naarsData as any).employmentTargetType && !(naarsData as any).employmentSectorSpecific) {
-            alert("Puisque l'activité est destinée à une population cible ou secteur spécifique, veuillez remplir l'une de ces deux informations.");
+          if (!(naarsData as any).employmentTargetType) {
+            alert("Veuillez sélectionner le type de population ciblée.");
+            return;
+          }
+          if ((naarsData as any).employmentTargetType === "Sectoriel" && !(naarsData as any).employmentSectorSpecific) {
+            alert("Le champ 'Secteur spécifique' est obligatoire lorsque vous choisissez 'Sectoriel'.");
             return;
           }
         }
@@ -549,7 +656,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
       clientLocationCountry,
       activityFormat: session?.activityFormat || 'À distance (en ligne/numérique) — dirigé par le personnel',
       languageUsed: session?.languageUsed || 'Français',
-      serviceSetting: session?.serviceSetting || 'Informations et Orientation Individuelles/Familiales',
+      serviceSetting: isGroup ? 'Informations et Orientation de Groupe' : (formData.get('serviceSetting') as string || 'Informations et Orientation Individuelles/Familiales'),
       providerLocation: session?.providerLocation || 'Canada',
       supportServices: session?.supportServices || 'Aucun service de soutien reçu',
       programmingType: (session as any)?.programmingType || 'Service standard',
@@ -562,6 +669,17 @@ const SessionModal: React.FC<SessionModalProps> = ({
       }
     }
 
+    // Sauvegarder les champs "collants" pour la prochaine fois
+    const stickyData = {
+      formFacilitatorType: sessionData.facilitatorType,
+      selectedConsultantName: sessionData.facilitatorName,
+      sessionType: sessionData.type,
+      programmingType: sessionData.programmingType
+    };
+    localStorage.setItem(STICKY_KEY, JSON.stringify(stickyData));
+
+    // Nettoyer le brouillon après sauvegarde réussie
+    localStorage.removeItem(DRAFT_KEY);
     onSave(sessionData);
   };
 
@@ -587,7 +705,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
   };
 
   const renderNAARSCheckbox = (label: string, field: keyof Session, indent = false, disabled = false) => (
-    <label className={`flex items-center gap-2 ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer group'} ${indent ? 'ml-6' : ''}`}>
+    <label key={field} className={`flex items-center gap-2 ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer group'} ${indent ? 'ml-6' : ''}`}>
       <input 
         type="checkbox" 
         checked={!!naarsData[field]} 
@@ -600,7 +718,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
   );
 
   const renderNAARSText = (label: string, field: keyof Session, disabled = false) => (
-    <div className={`space-y-1 ${disabled ? 'opacity-40' : ''}`}>
+    <div key={field} className={`space-y-1 ${disabled ? 'opacity-40' : ''}`}>
       <label className="text-[10px] font-bold text-slds-text-secondary uppercase">{label}</label>
       <select 
         value={(naarsData[field] as string) || ''} 
@@ -938,46 +1056,52 @@ const SessionModal: React.FC<SessionModalProps> = ({
               </div>
             )}
 
-            {/* Reporting IRCC (Uniquement Etablissement Individuel) */}
-            {!isGroup && sessionType === SessionType.ESTABLISHMENT && (
+            {/* Reporting IRCC (Etablissement - Individuel ou Groupe) */}
+            {(sessionType === SessionType.ESTABLISHMENT || (isGroup && (sessionType === SessionType.EMPLOYMENT || sessionType === SessionType.RTCE))) && (
               <div className="pt-4 border-t border-slds-border space-y-6">
                 <p className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-2">
                    <Activity size={14} className="text-slds-brand" /> Reporting IRCC (Orientation I&O)
                 </p>
 
-                {/* Emplacement du client : Pays */}
-                <div className="space-y-1">
-                  {selectedClient?.originCountry && (
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-500 font-semibold">
-                      <span className="font-black text-slate-400 uppercase tracking-widest">Pays d'origine du client :</span>
-                      <span className="text-slate-700 font-bold">{selectedClient.originCountry}</span>
-                    </div>
-                  )}
-                  {selectedClient?.residenceCountry && (
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-500 font-semibold">
-                      <span className="font-black text-slate-400 uppercase tracking-widest">Pays de résidence du client :</span>
-                      <span className="text-slate-700 font-bold">{selectedClient.residenceCountry}</span>
-                    </div>
-                  )}
-                  <label className="text-[10px] font-bold text-slds-text-secondary uppercase">
-                    Emplacement du client : Pays {attendance === AttendanceStatus.PRESENT && <span className="text-slds-error ml-1">*</span>}
-                  </label>
-                  <select 
-                    name="clientLocationCountry" 
-                    value={clientLocationCountry}
-                    onChange={(e) => setClientLocationCountry(e.target.value)}
-                    required 
-                    className="slds-input text-slds-brand"
-                  >
-                    <option value="">Sélectionner un pays...</option>
-                    {IRCC_COUNTRIES.map(country => (
-                      <option key={country} value={country}>{country}</option>
-                    ))}
-                  </select>
-                  <p className="text-[9px] text-slds-text-secondary italic">
-                    Ce champ est utilisé pour la Colonne 14 du rapport IRCC.
-                  </p>
-                </div>
+                {/* Emplacement du client : Pays (Uniquement Individuel) */}
+                {!isGroup && (
+                  <div className="space-y-1">
+                    {irccDisplayCountry && (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-[10px] text-indigo-700 font-bold mb-2 shadow-sm">
+                        <div className="p-1 bg-indigo-500 text-white rounded">
+                          <Globe size={10} />
+                        </div>
+                        <span className="font-black text-indigo-400 uppercase tracking-widest mr-1">Pays IRCC :</span>
+                        <span>{irccDisplayCountry}</span>
+                      </div>
+                    )}
+                    <label className="text-[10px] font-bold text-slds-text-secondary uppercase">
+                      Emplacement du client : Pays {attendance === AttendanceStatus.PRESENT && <span className="text-slds-error ml-1">*</span>}
+                    </label>
+                    <select 
+                      name="clientLocationCountry" 
+                      value={clientLocationCountry}
+                      onChange={(e) => setClientLocationCountry(e.target.value)}
+                      required 
+                      disabled={!!irccDisplayCountry}
+                      className={`slds-input text-slds-brand font-bold ${irccDisplayCountry ? 'bg-slate-100 cursor-not-allowed opacity-75' : ''}`}
+                    >
+                      <option value="">Sélectionner un pays...</option>
+                      {IRCC_COUNTRIES.map(country => (
+                        <option key={country} value={country}>{country}</option>
+                      ))}
+                    </select>
+                    {irccDisplayCountry ? (
+                      <p className="text-[8px] text-indigo-600 font-bold italic mt-1 flex items-center gap-1">
+                        <CheckCircle2 size={8} /> Valeur IRCC auto-détectée — non modifiable.
+                      </p>
+                    ) : (
+                      <p className="text-[9px] text-slds-text-secondary italic">
+                        Ce champ est utilisé pour la Colonne 14 du rapport IRCC.
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* Sujets Abordés */}
                 <div className="space-y-3">
@@ -1045,8 +1169,32 @@ const SessionModal: React.FC<SessionModalProps> = ({
                   />
                 </div>
 
+                {/* Cadre du service (I&O) */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slds-text-secondary uppercase">
+                    Le service a-t-il été fourni dans un cadre de groupe ou individuel/familial ?
+                  </label>
+                  {isGroup ? (
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        ✓ Informations et Orientation de Groupe (fixe)
+                      </span>
+                    </div>
+                  ) : (
+                    <select 
+                      name="serviceSetting" 
+                      defaultValue={session?.serviceSetting || "Informations et Orientation Individuelles/Familiales"}
+                      className="slds-input text-xs"
+                    >
+                      <option value="Informations et Orientation Individuelles/Familiales">Informations et Orientation Individuelles/Familiales</option>
+                      <option value="Informations et Orientation de Groupe">Informations et Orientation de Groupe</option>
+                    </select>
+                  )}
+                </div>
 
-                <div className="pt-6 border-t-2 border-dashed border-slds-border mt-6">
+
+                {!isGroup && (
+                  <div className="pt-6 border-t-2 border-dashed border-slds-border mt-6">
                   <div className="flex items-center justify-between p-4 bg-sky-50 border border-sky-200 rounded-lg mb-4">
                     <div className="flex items-center gap-3">
                       <div className="p-2 bg-sky-500 text-white rounded shadow-sm">
@@ -1366,6 +1514,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
                     </div>
                   )}
                 </div>
+              )}
               </div>
             )}
 
@@ -1388,10 +1537,13 @@ const SessionModal: React.FC<SessionModalProps> = ({
                     <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
                       
                       <div className="space-y-1">
-                        {selectedClient?.originCountry && (
-                          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-500 font-semibold mb-2">
-                            <span className="font-black text-slate-400 uppercase tracking-widest">Pays d'origine du client :</span>
-                            <span className="text-slate-700 font-bold">{selectedClient.originCountry}</span>
+                        {irccDisplayCountry && (
+                          <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-[10px] text-indigo-700 font-bold mb-2 shadow-sm">
+                            <div className="p-1 bg-indigo-500 text-white rounded">
+                              <Globe size={10} />
+                            </div>
+                            <span className="font-black text-indigo-400 uppercase tracking-widest mr-1">Pays IRCC :</span>
+                            <span>{irccDisplayCountry}</span>
                           </div>
                         )}
                         <div className="mb-4">
@@ -1415,16 +1567,23 @@ const SessionModal: React.FC<SessionModalProps> = ({
                           name="clientLocationCountry" 
                           value={clientLocationCountry}
                           onChange={(e) => setClientLocationCountry(e.target.value)}
-                          className="slds-input text-slds-brand"
+                          disabled={!!irccDisplayCountry}
+                          className={`slds-input text-slds-brand font-bold ${irccDisplayCountry ? 'bg-slate-100 cursor-not-allowed opacity-75' : ''}`}
                         >
                           <option value="">Sélectionner un pays...</option>
                           {IRCC_COUNTRIES.map(country => (
                             <option key={country} value={country}>{country}</option>
                           ))}
                         </select>
-                        <p className="text-[9px] text-slds-text-secondary italic">
-                          Ce champ est utilisé pour la Colonne 13 du rapport IRCC (SLE).
-                        </p>
+                        {irccDisplayCountry ? (
+                          <p className="text-[8px] text-indigo-600 font-bold italic mt-1 flex items-center gap-1">
+                            <CheckCircle2 size={8} /> Valeur IRCC auto-détectée — non modifiable.
+                          </p>
+                        ) : (
+                          <p className="text-[9px] text-slds-text-secondary italic">
+                            Ce champ est utilisé pour la Colonne 13 du rapport IRCC (SLE).
+                          </p>
+                        )}
                       </div>
 
                       {/* Accordéon 1 : Statut & Profession */}
@@ -1508,12 +1667,16 @@ const SessionModal: React.FC<SessionModalProps> = ({
                                   </select>
                                 </div>
                                 <div className="space-y-1">
-                                  <label className="text-[10px] font-bold text-slds-text-secondary uppercase">Secteur spécifique</label>
+                                  <label className="text-[10px] font-bold text-slds-text-secondary uppercase">
+                                    Secteur spécifique
+                                    {(naarsData as any).employmentTargetType === "Sectoriel" && <span className="text-red-500 ml-1">*</span>}
+                                  </label>
                                   <select 
                                     value={(naarsData as any).employmentSectorSpecific || ''} 
                                     onChange={(e) => setNAARSValue('employmentSectorSpecific' as any, e.target.value)} 
                                     className="slds-input text-xs disabled:opacity-40 disabled:bg-slate-50 disabled:cursor-not-allowed"
-                                    disabled={(naarsData as any).employmentTargetType === "Populations ciblées"}
+                                    disabled={(naarsData as any).employmentTargetType !== "Sectoriel"}
+                                    required={(naarsData as any).employmentTargetType === "Sectoriel"}
                                   >
                                     <option value="">Sélectionner...</option>
                                     {EMPLOYMENT_SECTORS.map(o => <option key={o} value={o}>{o}</option>)}

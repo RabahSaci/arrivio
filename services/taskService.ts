@@ -20,6 +20,7 @@ export const refreshAutomatedTasks = (
   const newTasks: WorkflowTask[] = [...existingTasks];
   const now = new Date();
   const todayStr = now.toLocaleDateString('en-CA'); // YYYY-MM-DD local
+  const firstAdmin = allProfiles.find(p => p.role === 'ADMINISTRATEUR');
 
   // Limite temporelle : On élargit un peu pour éviter les problèmes de fuseaux horaires
   const lookbackDays = new Date();
@@ -57,7 +58,6 @@ export const refreshAutomatedTasks = (
     }
 
     // 4. Fallback ultime : On assigne au premier administrateur trouvé
-    const firstAdmin = allProfiles.find(p => p.role === 'ADMINISTRATEUR');
     if (firstAdmin) return { id: firstAdmin.id, name: `${firstAdmin.firstName} ${firstAdmin.lastName}` };
 
     // Si vraiment rien : on garde l'utilisateur courant (dernier secours)
@@ -235,8 +235,8 @@ export const refreshAutomatedTasks = (
             description: `Le contrat ${contract.id} a atteint ${usagePercent.toFixed(0)}% de son quota. Prévoir un renouvellement.`,
             status: TaskStatus.PENDING,
             priority: TaskPriority.MEDIUM,
-            assignedToId: 'ADMIN-1', // Les contrats vont à l'admin
-            assignedToName: 'Administrateur',
+            assignedToId: firstAdmin?.id || currentUserId, // Les contrats vont à l'admin
+            assignedToName: firstAdmin ? `${firstAdmin.firstName} ${firstAdmin.lastName}` : 'Administrateur',
             relatedEntityId: contract.id,
             relatedEntityType: 'CONTRACT',
             dueDate: todayStr,
