@@ -173,9 +173,15 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
   };
 
   // Helper function for priority logic (shared for filtering and display)
-  const getPriorityCategory = (arrivalDateStr: string) => {
+  const getPriorityCategory = (client: Client) => {
+    const dateStr = client.arrivalDate || client.arrivalDateApprox;
+    if (!dateStr) return "NOT_YET";
+
     const now = new Date();
-    const arrival = new Date(arrivalDateStr);
+    const arrival = new Date(dateStr);
+    
+    if (isNaN(arrival.getTime())) return "NOT_YET";
+
     const diffInMs = arrival.getTime() - now.getTime();
     const diffInDays = diffInMs / (1000 * 60 * 60 * 24);
 
@@ -294,7 +300,7 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
       const advisorId = firstEstablishmentSession ? firstEstablishmentSession.advisorId : null;
       
       // Recalcule la priorité
-      let priority = getPriorityCategory(client.arrivalDateApprox || '');
+      let priority = getPriorityCategory(client);
       
       // Un client n'est considéré comme "RÉFÉRÉ" (vert) que s'il a un partenaire assigné ET un statut de dossier différent de EN_ATTENTE
       if (client.assignedPartnerId && client.status !== ReferralStatus.PENDING) {
@@ -332,8 +338,8 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
       const pB = getPriorityValue(b.priority);
       if (pA !== pB) return pA - pB;
       
-      const dateA = new Date(a.arrivalDateApprox || '').getTime();
-      const dateB = new Date(b.arrivalDateApprox || '').getTime();
+      const dateA = new Date(a.arrivalDate || a.arrivalDateApprox || '').getTime();
+      const dateB = new Date(b.arrivalDate || b.arrivalDateApprox || '').getTime();
       return dateA - dateB;
     });
   }, [clients, activeRole, currentPartnerId, searchTerm, filterPartner, filterStatus, filterAdvisor, filterPriority, partners, sessionsByClient]);
@@ -566,14 +572,43 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
                       </div>
                     </td>
                     <td>
-                      <div className="flex items-center gap-2 text-xs font-bold text-slds-text-primary">
-                        <Calendar size={14} className="text-slds-brand" />
-                        {(() => {
-                          if (!item.arrivalDate) return '—';
-                          const [y, m, d] = item.arrivalDate.split('-').map(Number);
-                          return new Date(y, m - 1, d).toLocaleDateString('fr-FR');
-                        })()}
-                      </div>
+                      {(() => {
+                        if (!item.arrivalDate) return <span className="text-xs text-slds-text-primary">—</span>;
+                        const [y, m, d] = item.arrivalDate.split('-').map(Number);
+                        const arrivalDate = new Date(y, m - 1, d);
+                        
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        const arrival = new Date(arrivalDate);
+                        arrival.setHours(0, 0, 0, 0);
+
+                        const diffTime = arrival.getTime() - today.getTime();
+                        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+                        
+                        let badge = null;
+                        if (diffDays < 0) {
+                          badge = <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[8px] font-black uppercase">Arrivé</span>;
+                        } else if (diffDays === 0) {
+                          badge = <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-600 text-[8px] font-black uppercase">Aujourd'hui</span>;
+                        } else if (diffDays <= 7) {
+                          badge = <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-600 border border-red-100 text-[8px] font-black uppercase">Dans {diffDays} j.</span>;
+                        } else if (diffDays <= 30) {
+                          badge = <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100 text-[8px] font-black uppercase">Dans {diffDays} j.</span>;
+                        } else {
+                          const months = Math.floor(diffDays / 30);
+                          badge = <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-100 text-[8px] font-black uppercase">Dans {months} m.</span>;
+                        }
+
+                        return (
+                          <div className="flex flex-col gap-1 items-start">
+                            {badge}
+                            <div className="flex items-center gap-2 text-xs font-bold text-slds-text-primary">
+                              <Calendar size={12} className="text-slds-brand" />
+                              {arrivalDate.toLocaleDateString('fr-FR')}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td>
                       <div className="flex flex-col">

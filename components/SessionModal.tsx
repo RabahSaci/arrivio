@@ -467,6 +467,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
     const startTime = formData.get('startTime') as string;
 
     // Validation globale obligatoire pour toutes les séances individuelles (Présent ou non)
+    // Validation globale obligatoire pour toutes les séances individuelles
     if (category === SessionCategory.INDIVIDUAL) {
       if (!sessionDate) {
         alert("Veuillez sélectionner une date.");
@@ -476,13 +477,17 @@ const SessionModal: React.FC<SessionModalProps> = ({
         alert("Veuillez sélectionner une heure de début.");
         return;
       }
-      if (!formDiscussedNeeds || formDiscussedNeeds.trim() === "") {
-        alert("Veuillez renseigner les besoins discutés.");
-        return;
-      }
-      if (!formActions || formActions.trim() === "") {
-        alert("Veuillez renseigner les actions planifiées.");
-        return;
+      
+      // Besoins et Actions obligatoires seulement si PRÉSENT
+      if (attendance === AttendanceStatus.PRESENT) {
+        if (!formDiscussedNeeds || formDiscussedNeeds.trim() === "") {
+          alert("Veuillez renseigner les besoins discutés.");
+          return;
+        }
+        if (!formActions || formActions.trim() === "") {
+          alert("Veuillez renseigner les actions planifiées.");
+          return;
+        }
       }
     }
 
@@ -636,7 +641,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
       participantIds: isGroup ? modalParticipantIds : (selectedClient ? [selectedClient.id] : (session?.participantIds || [])),
       noShowIds: !isGroup && selectedClient && attendance === AttendanceStatus.ABSENT ? [selectedClient.id] : (session?.noShowIds || []),
       location: isGroup ? 'À distance' : 'À distance',
-      notes: formData.get('notes') as string || '',
+      notes: formNotes,
       discussedNeeds: formDiscussedNeeds,
       actions: formActions,
       facilitatorName,
@@ -1030,34 +1035,39 @@ const SessionModal: React.FC<SessionModalProps> = ({
                    </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-1">
-                    <Target size={12} className="text-slds-brand" /> Besoins discutés <span className="text-slds-error ml-1">*</span>
-                  </label>
-                  <textarea 
-                    value={formDiscussedNeeds}
-                    onChange={(e) => setFormDiscussedNeeds(e.target.value)}
-                    placeholder="Synthèse des besoins exprimés par le client..."
-                    className="slds-input h-20 resize-none text-xs"
-                  />
-                </div>
+                {attendance === AttendanceStatus.PRESENT && (
+                  <>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-1">
+                        <Target size={12} className="text-slds-brand" /> Besoins discutés <span className="text-slds-error ml-1">*</span>
+                      </label>
+                      <textarea 
+                        value={formDiscussedNeeds}
+                        onChange={(e) => setFormDiscussedNeeds(e.target.value)}
+                        placeholder="Synthèse des besoins exprimés par le client..."
+                        className="slds-input h-20 resize-none text-xs"
+                      />
+                    </div>
 
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-1">
-                    <Activity size={12} className="text-slds-success" /> Actions planifiées <span className="text-slds-error ml-1">*</span>
-                  </label>
-                  <textarea 
-                    value={formActions}
-                    onChange={(e) => setFormActions(e.target.value)}
-                    placeholder="Prochaines étapes, rendez-vous, orientatons..."
-                    className="slds-input h-20 resize-none text-xs"
-                  />
-                </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-1">
+                        <Activity size={12} className="text-slds-success" /> Actions planifiées <span className="text-slds-error ml-1">*</span>
+                      </label>
+                      <textarea 
+                        value={formActions}
+                        onChange={(e) => setFormActions(e.target.value)}
+                        placeholder="Prochaines étapes, rendez-vous, orientatons..."
+                        className="slds-input h-20 resize-none text-xs"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
             {/* Reporting IRCC (Etablissement - Individuel ou Groupe) */}
-            {(sessionType === SessionType.ESTABLISHMENT || (isGroup && (sessionType === SessionType.EMPLOYMENT || sessionType === SessionType.RTCE))) && (
+            {((sessionType === SessionType.ESTABLISHMENT || (isGroup && (sessionType === SessionType.EMPLOYMENT || sessionType === SessionType.RTCE))) && 
+              (isGroup || attendance === AttendanceStatus.PRESENT)) && (
               <div className="pt-4 border-t border-slds-border space-y-6">
                 <p className="text-[10px] font-bold text-slds-text-secondary uppercase flex items-center gap-2">
                    <Activity size={14} className="text-slds-brand" /> Reporting IRCC (Orientation I&O)
@@ -1193,7 +1203,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
                 </div>
 
 
-                {!isGroup && (
+                {(!isGroup && attendance === AttendanceStatus.PRESENT) && (
                   <div className="pt-6 border-t-2 border-dashed border-slds-border mt-6">
                   <div className="flex items-center justify-between p-4 bg-sky-50 border border-sky-200 rounded-lg mb-4">
                     <div className="flex items-center gap-3">
@@ -1519,7 +1529,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
             )}
 
             {/* --- MODULE EMPLOI (SLE) --- */}
-            {(!isGroup && (sessionType === SessionType.EMPLOYMENT || showEmployment)) && (
+            {(!isGroup && (sessionType === SessionType.EMPLOYMENT || showEmployment) && attendance === AttendanceStatus.PRESENT) && (
                 <div className="space-y-4 pt-4 border-t border-slds-border">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">

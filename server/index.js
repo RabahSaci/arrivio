@@ -578,7 +578,46 @@ app.get('/api/sessions', async (req, res) => {
     // Optimization: Standard fetch only gets essential fields to avoid 32MB limit
     let selectFields = '*';
     if (req.query.full !== 'true') {
-      selectFields = 'id, title, type, category, date, start_time, duration, participant_ids, no_show_ids, facilitator_name, facilitator_type, advisor_name, advisor_id, contract_id, individual_status, location, created_at, programming_type, zoom_link, zoom_id, notes, discussed_needs, actions';
+      selectFields = [
+        // Core fields
+        'id, title, type, category, date, start_time, duration, participant_ids, no_show_ids',
+        'facilitator_name, facilitator_type, advisor_name, advisor_id, contract_id, individual_status',
+        'location, created_at, programming_type, zoom_link, zoom_id, notes, discussed_needs, actions',
+        'subjects_covered, target_client_types, service_setting, client_location_country, language_used',
+        // SÉBAA / NAARS — Life
+        'life_asset_ind, life_asset_family_networks_ind, life_asset_knowledge_services_ind',
+        'life_asset_settlement_motivation_ind, life_asset_other_skills_ind',
+        'life_needs_ind, life_needs_basic_identified_ind, life_needs_housing_identified_ind',
+        'life_needs_health_and_mental_identified_ind, life_needs_financial_identified_ind',
+        'life_needs_legal_identified_ind, life_needs_family_children_identified_ind',
+        'life_needs_government_knowledge_identified_ind, life_needs_canada_knowledge_identified_ind',
+        'life_needs_community_knowledge_identified_ind, life_needs_social_networking_identified_ind',
+        'life_needs_racism_identified_ind',
+        // SÉBAA / NAARS — Language
+        'language_asset_ind, language_asset_english_ind, language_asset_french_ind, language_asset_other_ind',
+        'language_needs_ind, language_needs_official_identified_need_ind',
+        'language_needs_literacy_identified_need_ind, language_needs_employment_identified_need_ind',
+        // SÉBAA / NAARS — Employment (needs/assets)
+        'employment_asset_ind, employment_asset_employed_ind, employment_asset_foreign_credential_ind',
+        'employment_asset_labour_market_ind, employment_asset_degree_in_canada_ind',
+        'employment_asset_degree_outside_canada_ind, employment_asset_previous_employment_ind',
+        'employment_asset_job_related_training_ind, employment_asset_work_experience_outside_canada_ind',
+        'employment_asset_other_skills_ind',
+        'employment_needs_ind, employment_labour_market_need_ind, employment_finding_employment_need_ind',
+        'employment_credentials_need_ind, employment_education_need_ind',
+        // SÉBAA — Plan & Referral
+        'settlement_plan_created_ind, francophone_referred_id, case_management_referred_id, language_of_service',
+        // Emploi (SLE) Module
+        'employment_status_canada, employment_status_outside, intended_occupation_cnp',
+        'employment_target_ind, employment_target_type, employment_sector_specific',
+        'employment_topic_career_planning_ind, employment_topic_labour_market_ind',
+        'employment_topic_regulated_profession_ind, employment_topic_entrepreneurship_ind',
+        'employment_topic_unregulated_profession_ind, employment_topic_skills_ind',
+        'employment_topic_workplace_orientation_ind',
+        'employment_referral_provided_ind',
+        'employment_ref_employer_ind, employment_ref_education_training_ind',
+        'employment_ref_credential_evaluation_ind'
+      ].join(', ');
     }
 
     let query = client

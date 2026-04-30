@@ -618,7 +618,6 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
             <thead>
               <tr>
                 <th>Client</th>
-                <th>Contact</th>
                 <th className="text-center">Statut</th>
                 <th>Localisation</th>
                 <th>Arrivée</th>
@@ -670,9 +669,6 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
                           <p className="text-[10px] text-slds-text-secondary font-normal uppercase mt-0.5">{client.profession}</p>
                         </div>
                       </div>
-                    </td>
-                    <td className="text-xs text-slds-text-primary">
-                      {client.email}
                     </td>
                     <td className="text-center">
                       {client.status === ReferralStatus.PENDING ? (

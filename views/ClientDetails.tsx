@@ -5,7 +5,7 @@ import { STATUS_COLORS, MOCK_CLIENTS, MOCK_SESSIONS, SESSION_TYPE_LABELS } from 
 import { getPeerMatches, generateClientSynthesis } from '../services/geminiService';
 import ConfirmModal from '../components/ConfirmModal';
 import SessionModal from '../components/SessionModal';
-import { Edit2, Save, Plane, ArrowLeft, Send, FileText, Info, Zap, CheckCircle2, RefreshCw, Share2, Calendar, History, Clock, Globe, Archive, MessageSquare, HeartHandshake, MapPin, Briefcase, ChevronRight, Sparkles, Loader2, Phone, Mail, Tag, X, UserX, AlertCircle, Building2, User, Fingerprint, FileCheck, ShieldCheck, Database, Cpu, Star, Activity, UserCheck, ChevronDown, ArrowRight, Check, Filter, Target, Users, Trash2, Plus } from 'lucide-react';
+import { Edit2, Save, Plane, ArrowLeft, Send, FileText, Info, Zap, CheckCircle2, RefreshCw, Share2, Calendar, History, Clock, Globe, Archive, MessageSquare, HeartHandshake, MapPin, Briefcase, ChevronRight, Sparkles, Loader2, Phone, Mail, Tag, X, UserX, AlertCircle, Building2, User, Fingerprint, FileCheck, ShieldCheck, Database, Cpu, Star, Activity, UserCheck, ChevronDown, ArrowRight, Check, Filter, Target, Users, Trash2, Plus, ClipboardList } from 'lucide-react';
 
 interface ClientDetailsProps {
   client: Client;
@@ -105,6 +105,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   const [peersLoading, setPeersLoading] = useState(false);
   const [synthesisLoading, setSynthesisLoading] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState<'info' | 'dossier' | 'workflow' | 'peers' | 'sessions' | 'audit'>('dossier');
+  const [activeSessionSubTab, setActiveSessionSubTab] = useState<'seba' | 'io' | 'rtce' | 'emploi' | 'comm'>('seba');
   const [newNote, setNewNote] = useState('');
   
   const [selectedPartnerId, setSelectedPartnerId] = useState(client.assignedPartnerId || '');
@@ -114,7 +115,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isUpdatingAttendance, setIsUpdatingAttendance] = useState<string | null>(null);
-  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const [expandedSessionIds, setExpandedSessionIds] = useState<string[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [tempClient, setTempClient] = useState<Client>({ ...client });
@@ -436,6 +437,16 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
         return timeB - timeA;
       });
   }, [allSessions, client.id]);
+
+  const sessionSubTabCounts = useMemo(() => {
+    return {
+      seba: clientSessions.filter(s => s.lifeNeedsInd || s.lifeAssetInd || s.languageNeedsInd || s.languageAssetInd || s.employmentNeedsInd || s.employmentAssetInd || s.settlementPlanCreatedInd).length,
+      io: clientSessions.filter(s => s.type === SessionType.ESTABLISHMENT).length,
+      rtce: clientSessions.filter(s => s.type === SessionType.RTCE).length,
+      emploi: clientSessions.filter(s => s.type === SessionType.EMPLOYMENT || s.employmentTargetInd).length,
+      comm: clientSessions.filter(s => (s.type as any) === SessionType.COMMUNITY_CONNECTION || s.type === SessionType.MATCHING).length,
+    };
+  }, [clientSessions]);
 
   const stats = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
@@ -1153,14 +1164,71 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                 <div className="space-y-6 animate-in fade-in duration-300">
                   <div className="flex justify-between items-center mb-6">
                     <div>
-                      <h3 className="text-lg font-black text-slate-900">Suivi d'assiduité & Séances</h3>
-                      <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Contrôle de la participation réelle aux services</p>
+                      <h3 className="text-lg font-black text-slate-900">Suivi des séances</h3>
                     </div>
                   </div>
 
-                  {clientSessions.length > 0 ? (
-                    <div className="grid grid-cols-1 gap-4">
-                      {clientSessions.map(session => {
+                  {/* Sub-tabs for Session Types */}
+                  <div className="flex gap-1 p-1 bg-slate-100 rounded-2xl w-fit mb-6 flex-wrap">
+                    {[
+                      { id: 'seba', label: 'SÉBAA', icon: ClipboardList },
+                      { id: 'io', label: 'I & O', icon: Info },
+                      { id: 'rtce', label: 'RTCE', icon: FileCheck },
+                      { id: 'emploi', label: 'Emploi', icon: Briefcase },
+                      { id: 'comm', label: 'Communautaire', icon: Users },
+                    ].map(sub => (
+                      <button
+                        key={sub.id}
+                        onClick={() => setActiveSessionSubTab(sub.id as any)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                          activeSessionSubTab === sub.id 
+                            ? 'bg-white text-blue-600 shadow-sm' 
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        <sub.icon size={12} /> {sub.label}
+                        <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] font-black shadow-sm transition-all ${
+                          sessionSubTabCounts[sub.id as keyof typeof sessionSubTabCounts] === 0
+                            ? 'bg-slate-100 text-slate-300 shadow-none'
+                            : activeSessionSubTab === sub.id
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-slate-800 text-white'
+                        }`}>
+                          {sessionSubTabCounts[sub.id as keyof typeof sessionSubTabCounts]}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {(() => {
+                    const filteredSessions = clientSessions.filter(s => {
+                      if (activeSessionSubTab === 'seba') {
+                        return s.lifeNeedsInd || s.lifeAssetInd || s.languageNeedsInd || s.languageAssetInd || s.employmentNeedsInd || s.employmentAssetInd || s.settlementPlanCreatedInd;
+                      }
+                      if (activeSessionSubTab === 'io') return s.type === SessionType.ESTABLISHMENT;
+                      if (activeSessionSubTab === 'rtce') return s.type === SessionType.RTCE;
+                      if (activeSessionSubTab === 'emploi') return s.type === SessionType.EMPLOYMENT || s.employmentTargetInd;
+                      if (activeSessionSubTab === 'comm') return s.type === SessionType.COMMUNITY_CONNECTION || s.type === SessionType.MATCHING;
+                      return true;
+                    });
+
+                    if (filteredSessions.length === 0) {
+                      return (
+                        <div className="py-20 text-center bg-slate-50/50 rounded-[40px] border-2 border-dashed border-slate-200">
+                          <div className="w-16 h-16 bg-white rounded-3xl border border-slate-100 flex items-center justify-center mx-auto mb-4 text-slate-200">
+                             {activeSessionSubTab === 'seba' ? <ClipboardList size={32} /> : 
+                              activeSessionSubTab === 'io' ? <Info size={32} /> :
+                              activeSessionSubTab === 'rtce' ? <FileCheck size={32} /> :
+                              activeSessionSubTab === 'emploi' ? <Briefcase size={32} /> : <Users size={32} />}
+                          </div>
+                          <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">Aucune donnée pour ce module.</p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="grid grid-cols-1 gap-4">
+                        {filteredSessions.map(session => {
                         const getStatusUI = () => {
                           if (session.category === SessionCategory.INDIVIDUAL) {
                             switch(session.individualStatus) {
@@ -1188,35 +1256,43 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                           ? (session.individualStatus === AttendanceStatus.ABSENT || (session.individualStatus == null && session.noShowIds?.includes(client.id)))
                           : session.noShowIds?.includes(client.id);
 
+                         const isExpanded = !expandedSessionIds.includes(session.id); // Default to expanded (not in collapsed list)
+
                         return (
                           <div key={session.id} className="overflow-hidden bg-slate-50 border border-slate-100 rounded-3xl hover:bg-white hover:shadow-md transition-all group">
                             <div 
-                              onClick={() => { if(session.category !== SessionCategory.GROUP) setExpandedSessionId(expandedSessionId === session.id ? null : session.id); }}
-                              className={`p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${session.category !== SessionCategory.GROUP ? 'cursor-pointer' : 'cursor-default'}`}
+                              onClick={() => { 
+                                setExpandedSessionIds(prev => 
+                                  prev.includes(session.id) 
+                                    ? prev.filter(id => id !== session.id) 
+                                    : [...prev, session.id]
+                                );
+                              }}
+                              className="p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 cursor-pointer"
                             >
                               <div className="flex items-center gap-4">
                                 <div className={`w-12 h-12 bg-white rounded-2xl border border-slate-100 flex items-center justify-center ${session.category === SessionCategory.GROUP ? 'text-purple-500' : statusUI.iconColor} group-hover:bg-slate-900 group-hover:text-white transition-colors shadow-sm`}>
                                   {session.category === SessionCategory.GROUP ? <Users size={24} /> : statusUI.icon}
                                 </div>
                                 <div>
-                                  <h4 className="text-sm font-black text-slate-800">{session.title}</h4>
+                                  <h4 className="text-base font-black text-slate-800">{session.title}</h4>
                                   <div className="flex flex-wrap gap-3 mt-1.5">
-                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
                                       <Clock size={11} /> {(() => {
                                         if (!session.date) return '---';
                                         const [y, m, d] = session.date.split('-').map(Number);
                                         return new Date(y, m - 1, d).toLocaleDateString('fr-FR');
                                       })()} @ {session.startTime}
                                     </span>
-                                    <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border flex items-center gap-1.5 ${session.category === SessionCategory.GROUP ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
+                                    <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border flex items-center gap-1.5 ${session.category === SessionCategory.GROUP ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
                                       {session.category === SessionCategory.GROUP ? <Users size={11} /> : <User size={11} />}
                                       {session.category === SessionCategory.GROUP ? 'Session de Groupe' : 'Suivi Individuel'}
                                     </span>
-                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
                                       <Tag size={11} /> {SESSION_TYPE_LABELS[session.type] || session.type}
                                     </span>
                                     {(session.facilitatorName || session.advisorName) && (
-                                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
                                         <Briefcase size={11} /> 
                                         {session.facilitatorName || session.advisorName}
                                         {session.facilitatorName && session.advisorName && session.facilitatorName !== session.advisorName && (
@@ -1224,7 +1300,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                                         )}
                                       </span>
                                     )}
-                                    <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${statusUI.colorStyle}`}>
+                                    <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${statusUI.colorStyle}`}>
                                       {statusUI.label}
                                     </span>
                                   </div>
@@ -1242,48 +1318,369 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                                      {isAbsent ? 'Restaurer Présence' : 'Signaler No-Show'}
                                    </button>
                                  )}
-                                 {session.category !== SessionCategory.GROUP && (
-                                   <div className={`p-2 rounded-lg transition-transform ${expandedSessionId === session.id ? 'rotate-180 bg-slate-100' : 'bg-white'}`}>
-                                     <ChevronDown size={16} className="text-slate-400" />
-                                   </div>
-                                 )}
+                                 <ChevronDown size={20} className={`text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
                               </div>
                             </div>
 
-                            {expandedSessionId === session.id && session.category !== SessionCategory.GROUP && (
+                            {isExpanded && (
                               <div className="px-6 pb-6 pt-2 border-t border-slate-100 bg-white/50 animate-in slide-in-from-top-2 duration-300">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
-                                  <div className="space-y-2">
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                      <Target size={14} className="text-blue-500" /> Besoins discutés
-                                    </p>
-                                    <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50 min-h-[80px]">
-                                      <p className="text-xs text-slate-700 font-medium leading-relaxed">
-                                        {session.discussedNeeds || "Aucun besoin renseigné"}
-                                      </p>
+                                {activeSessionSubTab === 'seba' && (
+                                  <div className="space-y-6 mt-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                      <div className="space-y-4">
+                                        <p className="text-[11px] font-black text-sky-700 uppercase tracking-widest border-b border-sky-100 pb-1 flex items-center gap-2">
+                                          <Star size={12} /> Atouts Identifiés
+                                        </p>
+                                        <div className="space-y-1 bg-sky-50/30 p-3 rounded-xl border border-sky-100/50">
+                                          {session.lifeAssetFamilyNetworksInd && <p className="text-xs font-bold text-slate-700 flex items-center gap-2"><Check size={12} className="text-emerald-500" /> Réseaux familiaux</p>}
+                                          {session.lifeAssetKnowledgeServicesInd && <p className="text-xs font-bold text-slate-700 flex items-center gap-2"><Check size={12} className="text-emerald-500" /> Connaissance services</p>}
+                                          {session.lifeAssetSettlementMotivationInd && <p className="text-xs font-bold text-slate-700 flex items-center gap-2"><Check size={12} className="text-emerald-500" /> Motivation intégration</p>}
+                                          {session.languageAssetInd && <p className="text-xs font-bold text-slate-700 flex items-center gap-2"><Check size={12} className="text-emerald-500" /> Atouts linguistiques</p>}
+                                          {session.employmentAssetInd && <p className="text-xs font-bold text-slate-700 flex items-center gap-2"><Check size={12} className="text-emerald-500" /> Atouts emploi</p>}
+                                          {!session.lifeAssetInd && !session.languageAssetInd && !session.employmentAssetInd && <p className="text-xs text-slate-400 italic">Aucun atout renseigné</p>}
+                                        </div>
+                                      </div>
+                                      <div className="space-y-4">
+                                        <p className="text-[11px] font-black text-sky-700 uppercase tracking-widest border-b border-sky-100 pb-1 flex items-center gap-2">
+                                          <AlertCircle size={12} /> Besoins Prioritaires
+                                        </p>
+                                        <div className="flex flex-wrap gap-2">
+                                          {session.lifeNeedsBasicIdentifiedInd && <span className="px-2 py-1 bg-white text-sky-700 text-[10px] font-bold rounded-lg border border-sky-200 shadow-sm">Besoins de base</span>}
+                                          {session.lifeNeedsHousingIdentifiedInd && <span className="px-2 py-1 bg-white text-sky-700 text-[10px] font-bold rounded-lg border border-sky-200 shadow-sm">Logement</span>}
+                                          {session.lifeNeedsHealthAndMentalIdentifiedInd && <span className="px-2 py-1 bg-white text-sky-700 text-[10px] font-bold rounded-lg border border-sky-200 shadow-sm">Santé</span>}
+                                          {session.lifeNeedsFinancialIdentifiedInd && <span className="px-2 py-1 bg-white text-sky-700 text-[10px] font-bold rounded-lg border border-sky-200 shadow-sm">Finances</span>}
+                                          {session.lifeNeedsLegalIdentifiedInd && <span className="px-2 py-1 bg-white text-sky-700 text-[10px] font-bold rounded-lg border border-sky-200 shadow-sm">Juridique</span>}
+                                          {session.languageNeedsInd && <span className="px-2 py-1 bg-white text-sky-700 text-[10px] font-bold rounded-lg border border-sky-200 shadow-sm">Langue</span>}
+                                          {session.employmentNeedsInd && <span className="px-2 py-1 bg-white text-sky-700 text-[10px] font-bold rounded-lg border border-sky-200 shadow-sm">Emploi</span>}
+                                          {!session.lifeNeedsInd && !session.languageNeedsInd && !session.employmentNeedsInd && <p className="text-xs text-slate-400 italic">Aucun besoin renseigné</p>}
+                                        </div>
+                                      </div>
+                                      <div className="space-y-4">
+                                        <p className="text-[11px] font-black text-sky-700 uppercase tracking-widest border-b border-sky-100 pb-1 flex items-center gap-2">
+                                          <Target size={12} /> Plan & Aiguillage
+                                        </p>
+                                        <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                                          <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Plan créé</span>
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-black ${session.settlementPlanCreatedInd ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                              {session.settlementPlanCreatedInd ? 'OUI' : 'NON'}
+                                            </span>
+                                          </div>
+                                          <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Réf. Francophone</span>
+                                            <span className="text-xs font-bold text-sky-700">{session.francophoneReferredId || '---'}</span>
+                                          </div>
+                                          <div className="flex justify-between items-center">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Gestion de cas</span>
+                                            <span className="text-xs font-bold text-sky-700">{session.caseManagementReferredId || '---'}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    
+                                    {/* Additional info for SÉBAA */}
+                                    {(session.discussedNeeds || session.actions) && (
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-100">
+                                        <div className="space-y-2">
+                                          <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Détails de l'évaluation</p>
+                                          <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                            {session.discussedNeeds}
+                                          </p>
+                                        </div>
+                                        <div className="space-y-2">
+                                          <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Plan d'action direct</p>
+                                          <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                            {session.actions}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {activeSessionSubTab === 'emploi' && (
+                                  <div className="space-y-6 mt-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                      <div className="space-y-4">
+                                        <p className="text-[11px] font-black text-indigo-700 uppercase tracking-widest border-b border-indigo-100 pb-1 flex items-center gap-2">
+                                          <Briefcase size={12} /> Profil Professionnel
+                                        </p>
+                                        <div className="space-y-2 bg-indigo-50/30 p-3 rounded-xl border border-indigo-100/50">
+                                          <div className="flex justify-between items-start">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Statut (Canada)</span>
+                                            <span className="text-xs font-bold text-indigo-700 text-right max-w-[60%]">{session.employmentStatusCanada || '---'}</span>
+                                          </div>
+                                          <div className="flex justify-between items-start">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Statut (Hors Canada)</span>
+                                            <span className="text-xs font-bold text-indigo-700 text-right max-w-[60%]">{session.employmentStatusOutside || '---'}</span>
+                                          </div>
+                                          <div className="flex justify-between items-start">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Profession (CNP)</span>
+                                            <span className="text-xs font-bold text-indigo-700 text-right max-w-[60%]">{session.intendedOccupationCnp || '---'}</span>
+                                          </div>
+                                          <div className="flex justify-between items-start">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Pays</span>
+                                            <span className="text-xs font-bold text-indigo-700">{session.clientLocationCountry || '---'}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div className="space-y-4">
+                                        <p className="text-[11px] font-black text-indigo-700 uppercase tracking-widest border-b border-indigo-100 pb-1 flex items-center gap-2">
+                                          <Target size={12} /> Thèmes Abordés
+                                        </p>
+                                        <div className="flex flex-wrap gap-2">
+                                          {session.employmentTopicCareerPlanningInd && <span className="px-2 py-1 bg-white text-indigo-700 text-[10px] font-bold rounded-lg border border-indigo-200 shadow-sm">Planification carrière</span>}
+                                          {session.employmentTopicLabourMarketInd && <span className="px-2 py-1 bg-white text-indigo-700 text-[10px] font-bold rounded-lg border border-indigo-200 shadow-sm">Marché du travail</span>}
+                                          {session.employmentTopicRegulatedProfessionInd && <span className="px-2 py-1 bg-white text-indigo-700 text-[10px] font-bold rounded-lg border border-indigo-200 shadow-sm">Prof. réglementée</span>}
+                                          {session.employmentTopicEntrepreneurshipInd && <span className="px-2 py-1 bg-white text-indigo-700 text-[10px] font-bold rounded-lg border border-indigo-200 shadow-sm">Entrepreneuriat</span>}
+                                          {session.employmentTopicUnregulatedProfessionInd && <span className="px-2 py-1 bg-white text-indigo-700 text-[10px] font-bold rounded-lg border border-indigo-200 shadow-sm">Prof. non réglementée</span>}
+                                          {session.employmentTopicSkillsInd && <span className="px-2 py-1 bg-white text-indigo-700 text-[10px] font-bold rounded-lg border border-indigo-200 shadow-sm">Compétences</span>}
+                                          {session.employmentTopicWorkplaceOrientationInd && <span className="px-2 py-1 bg-white text-indigo-700 text-[10px] font-bold rounded-lg border border-indigo-200 shadow-sm">Orientation milieu de travail</span>}
+                                          {!session.employmentTopicCareerPlanningInd && !session.employmentTopicLabourMarketInd && !session.employmentTopicRegulatedProfessionInd && !session.employmentTopicEntrepreneurshipInd && !session.employmentTopicUnregulatedProfessionInd && !session.employmentTopicSkillsInd && !session.employmentTopicWorkplaceOrientationInd && <p className="text-xs text-slate-400 italic">Aucun thème renseigné</p>}
+                                        </div>
+                                      </div>
+                                      <div className="space-y-4">
+                                        <p className="text-[11px] font-black text-indigo-700 uppercase tracking-widest border-b border-indigo-100 pb-1 flex items-center gap-2">
+                                          <ArrowRight size={12} /> Aiguillages
+                                        </p>
+                                        <div className="space-y-1 bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                                          {session.employmentRefEmployerInd && <p className="text-xs font-bold text-slate-700 flex items-center gap-2"><Check size={11} className="text-emerald-500 shrink-0" /> Employeur</p>}
+                                          {session.employmentRefEducationTrainingInd && <p className="text-xs font-bold text-slate-700 flex items-center gap-2"><Check size={11} className="text-emerald-500 shrink-0" /> Éducation / Formation</p>}
+                                          {session.employmentRefCredentialEvaluationInd && <p className="text-xs font-bold text-slate-700 flex items-center gap-2"><Check size={11} className="text-emerald-500 shrink-0" /> Évaluation des diplômes</p>}
+                                          {session.employmentRefBridgingProgramInd && <p className="text-xs font-bold text-slate-700 flex items-center gap-2"><Check size={11} className="text-emerald-500 shrink-0" /> Programme passerelle</p>}
+                                          {session.employmentRefLanguageTrainingInd && <p className="text-xs font-bold text-slate-700 flex items-center gap-2"><Check size={11} className="text-emerald-500 shrink-0" /> Formation linguistique</p>}
+                                          {session.employmentRefSelfEmploymentInd && <p className="text-xs font-bold text-slate-700 flex items-center gap-2"><Check size={11} className="text-emerald-500 shrink-0" /> Travail autonome</p>}
+                                          {session.employmentRefSettlementServicesInd && <p className="text-xs font-bold text-slate-700 flex items-center gap-2"><Check size={11} className="text-emerald-500 shrink-0" /> Services d'établissement</p>}
+                                          {!session.employmentReferralProvidedInd && <p className="text-xs text-slate-400 italic">Aucun aiguillage fourni</p>}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    {(session.discussedNeeds || session.actions) && (
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-100">
+                                        <div className="space-y-2">
+                                          <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Besoins discutés</p>
+                                          <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">{session.discussedNeeds}</p>
+                                        </div>
+                                        <div className="space-y-2">
+                                          <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Actions planifiées</p>
+                                          <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">{session.actions}</p>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {activeSessionSubTab === 'io' && (
+                                  <div className="space-y-6 mt-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                      <div className="space-y-4">
+                                        <p className="text-[11px] font-black text-blue-700 uppercase tracking-widest border-b border-blue-100 pb-1 flex items-center gap-2">
+                                          <FileText size={12} /> Sujets Abordés
+                                        </p>
+                                        <div className="flex flex-wrap gap-2">
+                                          {(session.subjectsCovered && session.subjectsCovered.length > 0)
+                                            ? session.subjectsCovered.map((s: string) => (
+                                                <span key={s} className="px-2 py-1 bg-white text-blue-700 text-[10px] font-bold rounded-lg border border-blue-200 shadow-sm">{s}</span>
+                                              ))
+                                            : <p className="text-xs text-slate-400 italic">Aucun sujet renseigné</p>
+                                          }
+                                        </div>
+                                      </div>
+                                      <div className="space-y-4">
+                                        <p className="text-[11px] font-black text-blue-700 uppercase tracking-widest border-b border-blue-100 pb-1 flex items-center gap-2">
+                                          <Users size={12} /> Clientèle Visée
+                                        </p>
+                                        <div className="flex flex-wrap gap-2">
+                                          {(session.targetClientTypes && session.targetClientTypes.length > 0)
+                                            ? session.targetClientTypes.map((t: string) => (
+                                                <span key={t} className="px-2 py-1 bg-white text-blue-700 text-[10px] font-bold rounded-lg border border-blue-200 shadow-sm">{t}</span>
+                                              ))
+                                            : <p className="text-xs text-slate-400 italic">Non spécifiée</p>
+                                          }
+                                        </div>
+                                      </div>
+                                      <div className="space-y-4">
+                                        <p className="text-[11px] font-black text-blue-700 uppercase tracking-widest border-b border-blue-100 pb-1 flex items-center gap-2">
+                                          <Info size={12} /> Cadre du Service
+                                        </p>
+                                        <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                                          <div className="flex justify-between items-center">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Format</span>
+                                            <span className="text-xs font-bold text-blue-700">{session.serviceSetting || '---'}</span>
+                                          </div>
+                                          <div className="flex justify-between items-center">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Langue service</span>
+                                            <span className="text-xs font-bold text-blue-700">{session.languageOfService || session.languageUsed || '---'}</span>
+                                          </div>
+                                          <div className="flex justify-between items-center">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Type</span>
+                                            <span className="text-xs font-bold text-blue-700">{session.programmingType || '---'}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-slate-100">
+                                      <div className="space-y-2">
+                                        <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Target size={12} className="text-blue-500" /> Besoins discutés</p>
+                                        <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50 min-h-[80px]">
+                                          <p className="text-sm text-slate-700 font-medium leading-relaxed">{session.discussedNeeds || 'Aucun besoin renseigné'}</p>
+                                        </div>
+                                      </div>
+                                      <div className="space-y-2">
+                                        <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Zap size={12} className="text-amber-500" /> Actions planifiées</p>
+                                        <div className="p-4 bg-amber-50/50 rounded-2xl border border-amber-100/50 min-h-[80px]">
+                                          <p className="text-sm text-slate-700 font-medium leading-relaxed">{session.actions || 'Aucune action planifiée'}</p>
+                                        </div>
+                                      </div>
+                                      <div className="space-y-2">
+                                        <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><FileText size={12} className="text-slate-400" /> Notes générales</p>
+                                        <div className="p-4 bg-slate-100/50 rounded-2xl border border-slate-200/50 min-h-[80px]">
+                                          <p className="text-sm text-slate-700 font-medium leading-relaxed italic">{session.notes || 'Aucune note'}</p>
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
-                                  <div className="space-y-2">
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                      <Zap size={14} className="text-amber-500" /> Actions planifiées
-                                    </p>
-                                    <div className="p-4 bg-amber-50/50 rounded-2xl border border-amber-100/50 min-h-[80px]">
-                                      <p className="text-xs text-slate-700 font-medium leading-relaxed">
-                                        {session.actions || "Aucune action planifiée"}
-                                      </p>
+                                )}
+
+                                {activeSessionSubTab === 'comm' && (
+                                  <div className="space-y-6 mt-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                      <div className="space-y-4">
+                                        <p className="text-[11px] font-black text-purple-700 uppercase tracking-widest border-b border-purple-100 pb-1 flex items-center gap-2">
+                                          <Users size={12} /> Informations de la Séance
+                                        </p>
+                                        <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                                          <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Type</span>
+                                            <span className="text-xs font-bold text-purple-700">{session.type || '---'}</span>
+                                          </div>
+                                          <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Format</span>
+                                            <span className="text-xs font-bold text-purple-700">{session.serviceSetting || '---'}</span>
+                                          </div>
+                                          <div className="flex justify-between items-center">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Programmation</span>
+                                            <span className="text-xs font-bold text-purple-700">{session.programmingType || '---'}</span>
+                                          </div>
+                                        </div>
+                                        {(session.targetClientTypes && session.targetClientTypes.length > 0) && (
+                                          <div className="space-y-2">
+                                            <p className="text-[11px] font-bold text-slate-400 uppercase">Clientèle visée</p>
+                                            <div className="flex flex-wrap gap-2">
+                                              {session.targetClientTypes.map((t: string) => (
+                                                <span key={t} className="px-2 py-1 bg-white text-purple-700 text-[10px] font-bold rounded-lg border border-purple-200 shadow-sm">{t}</span>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="space-y-4">
+                                        <p className="text-[11px] font-black text-purple-700 uppercase tracking-widest border-b border-purple-100 pb-1 flex items-center gap-2">
+                                          <MessageSquare size={12} /> Notes & Actions
+                                        </p>
+                                        <div className="space-y-3">
+                                          <div className="space-y-1">
+                                            <p className="text-[11px] font-bold text-slate-400 uppercase">Besoins discutés</p>
+                                            <div className="p-3 bg-purple-50/50 rounded-xl border border-purple-100/50 min-h-[60px]">
+                                              <p className="text-sm text-slate-700 font-medium leading-relaxed">{session.discussedNeeds || 'Non renseigné'}</p>
+                                            </div>
+                                          </div>
+                                          <div className="space-y-1">
+                                            <p className="text-[11px] font-bold text-slate-400 uppercase">Actions planifiées</p>
+                                            <div className="p-3 bg-amber-50/50 rounded-xl border border-amber-100/50 min-h-[60px]">
+                                              <p className="text-sm text-slate-700 font-medium leading-relaxed">{session.actions || 'Non renseigné'}</p>
+                                            </div>
+                                          </div>
+                                          {session.notes && (
+                                            <div className="space-y-1">
+                                              <p className="text-[11px] font-bold text-slate-400 uppercase">Notes générales</p>
+                                              <div className="p-3 bg-slate-100/50 rounded-xl border border-slate-200/50">
+                                                <p className="text-sm text-slate-700 font-medium leading-relaxed italic">{session.notes}</p>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
-                                  <div className="space-y-2">
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                      <FileText size={14} className="text-slate-400" /> Notes générales
-                                    </p>
-                                    <div className="p-4 bg-slate-100/50 rounded-2xl border border-slate-200/50 min-h-[80px]">
-                                      <p className="text-xs text-slate-700 font-medium leading-relaxed italic">
-                                        {session.notes || "Aucune note générale"}
-                                      </p>
+                                )}
+
+                                {activeSessionSubTab === 'rtce' && (
+                                  <div className="space-y-6 mt-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                      <div className="space-y-4">
+                                        <p className="text-[11px] font-black text-teal-700 uppercase tracking-widest border-b border-teal-100 pb-1 flex items-center gap-2">
+                                          <FileCheck size={12} /> Sujets Abordés
+                                        </p>
+                                        <div className="flex flex-wrap gap-2">
+                                          {(session.subjectsCovered && session.subjectsCovered.length > 0)
+                                            ? session.subjectsCovered.map((s: string) => (
+                                                <span key={s} className="px-2 py-1 bg-white text-teal-700 text-[10px] font-bold rounded-lg border border-teal-200 shadow-sm">{s}</span>
+                                              ))
+                                            : <p className="text-xs text-slate-400 italic">Aucun sujet renseigné</p>
+                                          }
+                                        </div>
+                                      </div>
+                                      <div className="space-y-4">
+                                        <p className="text-[11px] font-black text-teal-700 uppercase tracking-widest border-b border-teal-100 pb-1 flex items-center gap-2">
+                                          <Users size={12} /> Clientèle Visée
+                                        </p>
+                                        <div className="flex flex-wrap gap-2">
+                                          {(session.targetClientTypes && session.targetClientTypes.length > 0)
+                                            ? session.targetClientTypes.map((t: string) => (
+                                                <span key={t} className="px-2 py-1 bg-white text-teal-700 text-[10px] font-bold rounded-lg border border-teal-200 shadow-sm">{t}</span>
+                                              ))
+                                            : <p className="text-xs text-slate-400 italic">Non spécifiée</p>
+                                          }
+                                        </div>
+                                      </div>
+                                      <div className="space-y-4">
+                                        <p className="text-[11px] font-black text-teal-700 uppercase tracking-widest border-b border-teal-100 pb-1 flex items-center gap-2">
+                                          <Info size={12} /> Cadre du Service
+                                        </p>
+                                        <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                                          <div className="flex justify-between items-center">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Format</span>
+                                            <span className="text-xs font-bold text-teal-700">{session.serviceSetting || '---'}</span>
+                                          </div>
+                                          <div className="flex justify-between items-center">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Langue</span>
+                                            <span className="text-xs font-bold text-teal-700">{session.languageOfService || session.languageUsed || '---'}</span>
+                                          </div>
+                                          <div className="flex justify-between items-center">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Type</span>
+                                            <span className="text-xs font-bold text-teal-700">{session.programmingType || '---'}</span>
+                                          </div>
+                                          <div className="flex justify-between items-center">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Pays client</span>
+                                            <span className="text-xs font-bold text-teal-700">{session.clientLocationCountry || '---'}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-slate-100">
+                                      <div className="space-y-2">
+                                        <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Target size={12} className="text-teal-500" /> Besoins discutés</p>
+                                        <div className="p-4 bg-teal-50/50 rounded-2xl border border-teal-100/50 min-h-[80px]">
+                                          <p className="text-sm text-slate-700 font-medium leading-relaxed">{session.discussedNeeds || 'Aucun besoin renseigné'}</p>
+                                        </div>
+                                      </div>
+                                      <div className="space-y-2">
+                                        <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Zap size={12} className="text-amber-500" /> Actions planifiées</p>
+                                        <div className="p-4 bg-amber-50/50 rounded-2xl border border-amber-100/50 min-h-[80px]">
+                                          <p className="text-sm text-slate-700 font-medium leading-relaxed">{session.actions || 'Aucune action planifiée'}</p>
+                                        </div>
+                                      </div>
+                                      <div className="space-y-2">
+                                        <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><FileText size={12} className="text-slate-400" /> Notes générales</p>
+                                        <div className="p-4 bg-slate-100/50 rounded-2xl border border-slate-200/50 min-h-[80px]">
+                                          <p className="text-sm text-slate-700 font-medium leading-relaxed italic">{session.notes || 'Aucune note'}</p>
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
+                                )}
+
                               </div>
                             )}
                           </div>
@@ -1291,12 +1688,8 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                         );
                       })}
                     </div>
-                  ) : (
-                    <div className="py-20 text-center bg-slate-50/50 rounded-[40px] border-2 border-dashed border-slate-200">
-                      <Calendar size={48} className="mx-auto text-slate-200 mb-4" />
-                      <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">Aucun historique de présence disponible.</p>
-                    </div>
-                  )}
+                  );
+                })()}
                 </div>
               )}
 
