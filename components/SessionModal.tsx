@@ -249,7 +249,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
           setClientLocationCountry(session.clientLocationCountry || '');
           setSessionType(session.type);
           setProgrammingType(session.programmingType || 'Service standard');
-          if (session.type === SessionType.EMPLOYMENT) {
+          if (session.type === SessionType.EMPLOYMENT || session.type === SessionType.RTCE) {
             setShowEmployment(true);
           }
           
@@ -574,7 +574,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
       }
       
       // Validation Emploi (SLE) if active
-      if (!isGroup && (sessionType === SessionType.EMPLOYMENT || showEmployment) && attendance === AttendanceStatus.PRESENT) {
+      if (!isGroup && (sessionType === SessionType.EMPLOYMENT || sessionType === SessionType.RTCE || showEmployment) && attendance === AttendanceStatus.PRESENT) {
         // 1. Statuts obligatoires
         if (!(naarsData as any).employmentStatusOutside) {
           alert("Le champ 'Statut professionnel (Hors Canada)' est obligatoire pour le module Emploi.");
@@ -863,7 +863,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
                     onChange={(e) => {
                       const newType = e.target.value as SessionType;
                       setSessionType(newType);
-                      if (newType === SessionType.EMPLOYMENT) {
+                      if (newType === SessionType.EMPLOYMENT || newType === SessionType.RTCE) {
                         setShowEmployment(true);
                       }
                       // Optionnel: On pourrait aussi désactiver SEBAA si ce n'est pas un service d'Établissement
@@ -1529,7 +1529,7 @@ const SessionModal: React.FC<SessionModalProps> = ({
             )}
 
             {/* --- MODULE EMPLOI (SLE) --- */}
-            {(!isGroup && (sessionType === SessionType.EMPLOYMENT || showEmployment) && attendance === AttendanceStatus.PRESENT) && (
+            {(!isGroup && (sessionType === SessionType.EMPLOYMENT || sessionType === SessionType.RTCE || showEmployment) && attendance === AttendanceStatus.PRESENT) && (
                 <div className="space-y-4 pt-4 border-t border-slds-border">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
