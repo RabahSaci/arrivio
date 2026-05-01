@@ -1203,7 +1203,7 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                   {(() => {
                     const filteredSessions = clientSessions.filter(s => {
                       if (activeSessionSubTab === 'seba') {
-                        return s.lifeNeedsInd || s.lifeAssetInd || s.languageNeedsInd || s.languageAssetInd || s.employmentNeedsInd || s.employmentAssetInd || s.settlementPlanCreatedInd;
+                        return s.lifeNeedsInd || s.lifeAssetInd || s.languageNeedsInd || s.languageAssetInd || s.employmentNeedsInd || s.employmentAssetInd || s.settlementPlanCreatedInd || s.supportReceivedInd || s.supportRequiredInd || s.languageOfService;
                       }
                       if (activeSessionSubTab === 'io') return s.type === SessionType.ESTABLISHMENT;
                       if (activeSessionSubTab === 'rtce') return s.type === SessionType.RTCE;
@@ -1377,6 +1377,24 @@ const ClientDetails: React.FC<ClientDetailsProps> = ({
                                         </div>
                                       </div>
                                     </div>
+                                    
+                                    {/* Services de soutien SÉBAA */}
+                                    {(session.supportReceivedInd || session.supportRequiredInd || session.childmindingReceivedInd || session.digitalEquipmentReceivedInd || session.digitalSkillReceivedInd || session.interpretationReceivedInd || session.disabilitySupportReceivedInd || session.transportationReceivedInd || session.translationReceivedInd) && (
+                                      <div className="p-4 bg-amber-50/30 border border-amber-100 rounded-2xl">
+                                        <p className="text-[11px] font-black text-amber-700 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                          <Zap size={12} /> Services de Soutien
+                                        </p>
+                                        <div className="flex flex-wrap gap-2">
+                                          {session.childmindingReceivedInd && <span className="px-2 py-1 bg-white text-amber-700 text-[9px] font-bold rounded-lg border border-amber-200">Garde d'enfants</span>}
+                                          {session.digitalEquipmentReceivedInd && <span className="px-2 py-1 bg-white text-amber-700 text-[9px] font-bold rounded-lg border border-amber-200">Équipement numérique</span>}
+                                          {session.digitalSkillReceivedInd && <span className="px-2 py-1 bg-white text-amber-700 text-[9px] font-bold rounded-lg border border-amber-200">Compétences numériques</span>}
+                                          {session.interpretationReceivedInd && <span className="px-2 py-1 bg-white text-amber-700 text-[9px] font-bold rounded-lg border border-amber-200">Interprétation</span>}
+                                          {session.disabilitySupportReceivedInd && <span className="px-2 py-1 bg-white text-amber-700 text-[9px] font-bold rounded-lg border border-amber-200">Handicap</span>}
+                                          {session.transportationReceivedInd && <span className="px-2 py-1 bg-white text-amber-700 text-[9px] font-bold rounded-lg border border-amber-200">Transport</span>}
+                                          {session.translationReceivedInd && <span className="px-2 py-1 bg-white text-amber-700 text-[9px] font-bold rounded-lg border border-amber-200">Traduction</span>}
+                                        </div>
+                                      </div>
+                                    )}
                                     
                                     {/* Additional info for SÉBAA */}
                                     {(session.discussedNeeds || session.actions) && (

@@ -8,6 +8,8 @@ import {
   Search, 
   Building2, 
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   FileSearch,
   Clock,
   AlertTriangle,
@@ -48,6 +50,9 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
   const [filterAdvisor, setFilterAdvisor] = useState('ALL');
   const [filterPriority, setFilterPriority] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
+  const [filterArrivalStart, setFilterArrivalStart] = useState('');
+  const [filterArrivalEnd, setFilterArrivalEnd] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -282,6 +287,16 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
         if (client.status !== filterStatus) return false;
       }
 
+      // 6. Filtrage par Date d'Arrivée
+      const clientArrival = client.arrivalDate || client.arrivalDateApprox;
+      if (clientArrival) {
+        if (filterArrivalStart && clientArrival < filterArrivalStart) return false;
+        if (filterArrivalEnd && clientArrival > filterArrivalEnd) return false;
+      } else if (filterArrivalStart || filterArrivalEnd) {
+        // Si on filtre par date mais que le client n'en a pas
+        return false;
+      }
+
       return true;
     }).map(client => {
       const partner = partners.find(p => p.id === client.assignedPartnerId);
@@ -342,7 +357,18 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
       const dateB = new Date(b.arrivalDate || b.arrivalDateApprox || '').getTime();
       return dateA - dateB;
     });
-  }, [clients, activeRole, currentPartnerId, searchTerm, filterPartner, filterStatus, filterAdvisor, filterPriority, partners, sessionsByClient]);
+  }, [clients, activeRole, currentPartnerId, searchTerm, filterPartner, filterStatus, filterAdvisor, filterPriority, filterArrivalStart, filterArrivalEnd, partners, sessionsByClient]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (filterPartner !== 'ALL') count++;
+    if (filterAdvisor !== 'ALL') count++;
+    if (filterPriority !== 'ALL') count++;
+    if (filterStatus !== 'ALL') count++;
+    if (filterArrivalStart) count++;
+    if (filterArrivalEnd) count++;
+    return count;
+  }, [filterPartner, filterAdvisor, filterPriority, filterStatus, filterArrivalStart, filterArrivalEnd]);
 
   const totalItems = filteredClients.length;
   const totalPages = Math.ceil(totalItems / itemsPerPage);
@@ -428,97 +454,140 @@ const ReferralManagement: React.FC<ReferralManagementProps> = ({
             />
           </div>
           
-          {isAdvisor && (
-            <>
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                className="hidden" 
-                accept=".xlsx, .xls, .csv"
-                onChange={handleImportReferrals} 
-              />
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isLoading}
-                className="slds-button slds-button_neutral flex items-center gap-2"
-              >
-                <Share2 size={14} className="text-slds-brand" />
-                Télécharger en lots
-              </button>
-            </>
-          )}
+          <div className="flex items-center gap-2">
+            <button 
+              type="button"
+              onClick={() => setShowFilters(!showFilters)}
+              className={`slds-button ${showFilters || activeFiltersCount > 0 ? 'slds-button-brand' : 'slds-button-neutral'} !py-2 !px-4 flex items-center gap-2 relative transition-all shadow-sm`}
+            >
+              <div className="relative flex items-center gap-2">
+                <Filter size={14} />
+                {activeFiltersCount > 0 && (
+                  <span className="absolute -top-2 -left-2 min-w-[16px] h-[16px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-1 border-2 border-white">
+                    {activeFiltersCount}
+                  </span>
+                )}
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-widest">
+                {showFilters ? 'Masquer' : 'Filtres'}
+              </span>
+              {showFilters ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+
+            {isAdvisor && (
+              <>
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  className="hidden" 
+                  accept=".xlsx, .xls, .csv"
+                  onChange={handleImportReferrals} 
+                />
+                <button 
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isLoading}
+                  className="slds-button slds-button_neutral flex items-center gap-2 !py-2 shadow-sm"
+                >
+                  <Share2 size={14} className="text-slds-brand" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Importer</span>
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
-        {/* Ligne 2 : Les filtres sur une seule ligne dédiée */}
-        <div className="flex items-center gap-4 pt-3 border-t border-slds-border/50">
-          <div className="flex items-center gap-1.5 text-slds-text-secondary mr-2">
-            <Filter size={12} />
-            <span className="text-[9px] font-black uppercase tracking-widest">Filtres</span>
-          </div>
-          
-          {isAdvisor && (
-            <select 
-              className="slds-input slds-input-compact w-auto min-w-[150px] text-[10px] h-8"
-              value={filterPartner}
-              onChange={(e) => setFilterPartner(e.target.value)}
-            >
-              <option value="ALL">Tous les organismes</option>
-              <option value="NONE">⚠️ Non référés</option>
-              {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          )}
+        {/* Ligne 2 : Les filtres - Affichage conditionnel */}
+        {showFilters && (
+          <div className="flex flex-wrap items-center gap-4 pt-4 border-t border-slds-border/50 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="flex items-center gap-1.5 text-slds-text-secondary mr-2">
+              <Filter size={12} />
+              <span className="text-[9px] font-black uppercase tracking-widest">Filtres Actifs</span>
+            </div>
+            
+            {isAdvisor && (
+              <select 
+                className="slds-input slds-input-compact w-auto min-w-[150px] text-[10px] h-8"
+                value={filterPartner}
+                onChange={(e) => setFilterPartner(e.target.value)}
+              >
+                <option value="ALL">Tous les organismes</option>
+                <option value="UNASSIGNED">⚠️ Non référés</option>
+                {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            )}
 
-          {isAdvisor && (
+            {isAdvisor && (
+              <select 
+                className="slds-input slds-input-compact w-auto min-w-[180px] text-[10px] h-8"
+                value={filterAdvisor}
+                onChange={(e) => setFilterAdvisor(e.target.value)}
+              >
+                <option value="ALL">Tous les conseillers</option>
+                {advisorOptions.map(f => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </select>
+            )}
+
             <select 
-              className="slds-input slds-input-compact w-auto min-w-[180px] text-[10px] h-8"
-              value={filterAdvisor}
-              onChange={(e) => setFilterAdvisor(e.target.value)}
+              className="slds-input slds-input-compact w-auto text-[10px] h-8"
+              value={filterPriority}
+              onChange={(e) => setFilterPriority(e.target.value)}
             >
-              <option value="ALL">Tous les conseillers</option>
-              {advisorOptions.map(f => (
-                <option key={f.id} value={f.id}>{f.name}</option>
+              <option value="ALL">Toutes priorités</option>
+              <option value="URGENT">Urgent 🔴</option>
+              <option value="TO_REFER">À référer 🟠</option>
+              <option value="NOT_YET">Pas encore ⚪</option>
+              <option value="REFERRED">Déjà Référé 🟢</option>
+            </select>
+
+            <select 
+              className="slds-input slds-input-compact w-auto text-[10px] h-8"
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+            >
+              <option value="ALL">Tous les statuts</option>
+              {Object.values(ReferralStatus).map(st => (
+                <option key={st} value={st}>{st.replace(/_/g, ' ')}</option>
               ))}
             </select>
-          )}
 
-          <select 
-            className="slds-input slds-input-compact w-auto text-[10px] h-8"
-            value={filterPriority}
-            onChange={(e) => setFilterPriority(e.target.value)}
-          >
-            <option value="ALL">Toutes priorités</option>
-            <option value="URGENT">Urgent 🔴</option>
-            <option value="TO_REFER">À référer 🟠</option>
-            <option value="NOT_YET">Pas encore ⚪</option>
-            <option value="REFERRED">Déjà Référé 🟢</option>
-          </select>
+            <div className="flex items-center gap-2 border-l border-slds-border/50 pl-4 ml-2">
+              <span className="text-[9px] font-black text-slds-text-secondary uppercase">Arrivée du</span>
+              <input 
+                type="date" 
+                className="slds-input slds-input-compact w-auto text-[10px] h-8"
+                value={filterArrivalStart}
+                onChange={(e) => setFilterArrivalStart(e.target.value)}
+              />
+              <span className="text-[9px] font-black text-slds-text-secondary uppercase">au</span>
+              <input 
+                type="date" 
+                className="slds-input slds-input-compact w-auto text-[10px] h-8"
+                value={filterArrivalEnd}
+                onChange={(e) => setFilterArrivalEnd(e.target.value)}
+              />
+            </div>
 
-          <select 
-            className="slds-input slds-input-compact w-auto text-[10px] h-8"
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-          >
-            <option value="ALL">Tous les statuts</option>
-            {Object.values(ReferralStatus).map(st => (
-              <option key={st} value={st}>{st.replace(/_/g, ' ')}</option>
-            ))}
-          </select>
-
-          {(searchTerm || filterPartner !== 'ALL' || filterAdvisor !== 'ALL' || filterPriority !== 'ALL' || filterStatus !== 'ALL') && (
-            <button 
-              onClick={() => {
-                setSearchTerm('');
-                setFilterPartner('ALL');
-                setFilterAdvisor('ALL');
-                setFilterPriority('ALL');
-                setFilterStatus('ALL');
-              }}
-              className="text-[9px] font-black text-slds-brand px-1 hover:underline uppercase"
-            >
-              Réinitialiser
-            </button>
-          )}
-        </div>
+            {activeFiltersCount > 0 && (
+              <button 
+                type="button"
+                onClick={() => {
+                  setFilterPartner('ALL');
+                  setFilterAdvisor('ALL');
+                  setFilterPriority('ALL');
+                  setFilterStatus('ALL');
+                  setFilterArrivalStart('');
+                  setFilterArrivalEnd('');
+                }}
+                className="text-[9px] font-black text-slds-brand px-1 hover:underline uppercase"
+              >
+                Réinitialiser
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Data Table SLDS */}

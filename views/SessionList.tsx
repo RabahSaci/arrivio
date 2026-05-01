@@ -3,7 +3,6 @@ import * as XLSX from 'xlsx';
 import { Session, SessionType, SessionCategory, Client, FacilitatorType, AttendanceStatus, Partner, PartnerType, Contract, UserRole, Profile } from '../types';
 import { SESSION_TYPE_LABELS, SESSION_CATEGORY_LABELS, ATTENDANCE_STATUS_LABELS } from '../constants';
 import { apiService } from '../services/apiService';
-import { exportSEBAAReport } from '../services/exportSEBAA';
 import ConfirmModal from '../components/ConfirmModal';
 import Pagination from '../components/Pagination';
 import SessionModal from '../components/SessionModal';
@@ -728,38 +727,22 @@ const SessionList: React.FC<SessionListProps> = ({
             )}
 
             {activeCategory === SessionCategory.INDIVIDUAL && (
-              <button
-                onClick={async () => {
-                  const btn = document.getElementById('btn-export-sebaa');
-                  if (btn) { btn.setAttribute('disabled', 'true'); btn.textContent = 'Export en cours...'; }
-                  try {
-                    await exportSEBAAReport(sessions, clients);
-                  } finally {
-                    if (btn) { btn.removeAttribute('disabled'); btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg> Export SÉBAA'; }
-                  }
-                }}
-                id="btn-export-sebaa"
-                className="slds-button slds-button-neutral !px-4 !py-2 flex items-center gap-2 text-sky-600 border-sky-200 hover:bg-sky-50"
-                title="Exporter les évaluations SÉBAA au format Excel IRCC VER 1335"
+              <button 
+                onClick={handleImportExcel}
+                disabled={isImporting}
+                className="slds-button slds-button-neutral !px-4 !py-2 flex items-center gap-2"
               >
-                <ClipboardList size={14} /> Export SÉBAA
+                {isImporting ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" /> Chargement...
+                  </>
+                ) : (
+                  <>
+                    <Upload size={14} /> Téléversement par lots
+                  </>
+                )}
               </button>
             )}
-            <button 
-              onClick={handleImportExcel}
-              disabled={isImporting}
-              className="slds-button slds-button-neutral !px-4 !py-2 flex items-center gap-2"
-            >
-              {isImporting ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" /> Chargement...
-                </>
-              ) : (
-                <>
-                  <Upload size={14} /> Téléversement par lots
-                </>
-              )}
-            </button>
           </div>
         </div>
 

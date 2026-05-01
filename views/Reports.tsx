@@ -1,6 +1,5 @@
-
 import React, { useState, useMemo } from 'react';
-import { Client, Session, Partner, UserRole, ReferralStatus, SessionType, SessionCategory } from '../types';
+import { Client, Session, Partner, UserRole, ReferralStatus, SessionType, SessionCategory, AttendanceStatus } from '../types';
 import { SESSION_TYPE_LABELS, STATUS_COLORS, getIRCCCountry } from '../constants';
 import { apiService } from '../services/apiService';
 import { 
@@ -18,7 +17,6 @@ import {
   Clock,
   Briefcase
 } from 'lucide-react';
-import { exportSEBAAReport } from '../services/exportSEBAA';
 import { exportEmployment } from '../services/exportEmployment';
 
 import * as XLSX from 'xlsx';
@@ -30,16 +28,29 @@ interface ReportsProps {
   activeRole: UserRole;
   currentPartnerId?: string;
   currentUserName?: string;
+  allProfiles: any[];
 }
 
-const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRole, currentPartnerId, currentUserName }) => {
+const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRole, currentPartnerId, currentUserName, allProfiles }) => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedPartner, setSelectedPartner] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState<ReferralStatus | 'ALL'>('ALL');
   const [selectedType, setSelectedType] = useState<SessionType | 'ALL'>('ALL');
+  const [selectedAdvisor, setSelectedAdvisor] = useState('ALL');
 
   const isAdmin = activeRole === UserRole.ADMIN || activeRole === UserRole.MANAGER;
+  
+  const advisorOptions = useMemo(() => {
+    if (!allProfiles) return [];
+    return allProfiles
+      .filter(p => [UserRole.ADVISOR, UserRole.MANAGER, UserRole.ADMIN].includes(p.role))
+      .map(p => ({
+        id: p.id,
+        name: `${p.firstName} ${p.lastName}`.trim()
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [allProfiles]);
 
   // Logique de filtrage des clients pour l'export
   const filteredClients = useMemo(() => {
@@ -55,9 +66,8 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
 
       const clientSessions = sessions.filter(s => s.participantIds?.includes(c.id));
       const hasActivityInRange = clientSessions.some(s => {
-        const sessionDate = new Date(s.date);
-        const matchStart = !startDate || sessionDate >= new Date(startDate);
-        const matchEnd = !endDate || sessionDate <= new Date(endDate);
+        const matchStart = !startDate || s.date >= startDate;
+        const matchEnd = !endDate || s.date <= endDate;
         return matchStart && matchEnd;
       });
 
@@ -70,17 +80,18 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
     return sessions.filter(s => {
       const matchType = selectedType === 'ALL' || s.type === selectedType;
       
-      const sessionDate = new Date(s.date);
-      const matchStart = !startDate || sessionDate >= new Date(startDate);
-      const matchEnd = !endDate || sessionDate <= new Date(endDate);
+      const matchStart = !startDate || s.date >= startDate;
+      const matchEnd = !endDate || s.date <= endDate;
       
       // Filtrage par conseiller : Les conseillers ne voient que leurs propres séances
       // L'admin et le manager voient tout.
       const matchUser = isAdmin || s.facilitatorName === currentUserName || s.advisorName === currentUserName;
 
-      return matchType && matchStart && matchEnd && matchUser;
+      const matchAdvisor = selectedAdvisor === 'ALL' || s.advisorId === selectedAdvisor;
+
+      return matchType && matchStart && matchEnd && matchUser && matchAdvisor;
     });
-  }, [sessions, selectedType, startDate, endDate, isAdmin, currentUserName]);
+  }, [sessions, selectedType, selectedAdvisor, startDate, endDate, isAdmin, currentUserName]);
 
   const downloadExcel = (data: any[], filename: string) => {
     if (data.length === 0) {
@@ -178,34 +189,13 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
     downloadCSV(exportData, 'Arrivio_Export_Seances');
   };
 
-  const handleExportSEBAAReport = async () => {
-    const targetSessions = filteredSessions.filter(s => 
-      s.type === SessionType.ESTABLISHMENT && s.category === SessionCategory.INDIVIDUAL
-    );
-    if (targetSessions.length === 0) {
-      alert("Aucune séance individuelle d'établissement trouvée pour la période sélectionnée.");
-      return;
-    }
-    try {
-      const fullSessions = await apiService.fetchTable('sessions', { 
-        full: 'true', 
-        startDate, 
-        endDate,
-        type: SessionType.ESTABLISHMENT,
-        category: SessionCategory.INDIVIDUAL
-      });
-      const mapped = targetSessions.map(ts => {
-        const full = fullSessions.find((fs: any) => fs.id === ts.id);
-        return full || ts;
-      });
-      await exportSEBAAReport(mapped, clients);
-    } catch (err) {
-      console.error("Error exporting SEBAA:", err);
-    }
-  };
 
   const handleExportEmploymentReport = async () => {
-    const targetSessions = filteredSessions.filter(s => s.type === SessionType.EMPLOYMENT && s.category === SessionCategory.INDIVIDUAL);
+    const targetSessions = filteredSessions.filter(s => 
+      s.type === SessionType.EMPLOYMENT && 
+      s.category === SessionCategory.INDIVIDUAL &&
+      s.individualStatus === AttendanceStatus.PRESENT
+    );
     if (targetSessions.length === 0) {
       alert("Aucune séance individuelle du service emploi trouvée pour la période sélectionnée.");
       return;
@@ -231,7 +221,9 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
   const handleExportEstablishmentIndividual = async () => {
     // Filtrer : Type ETABLISSEMENT + Categorie INDIVIDUELLE
     let targetSessions = filteredSessions.filter(s => 
-      s.type === SessionType.ESTABLISHMENT && s.category === SessionCategory.INDIVIDUAL
+      s.type === SessionType.ESTABLISHMENT && 
+      s.category === SessionCategory.INDIVIDUAL &&
+      s.individualStatus === AttendanceStatus.PRESENT
     );
 
     if (targetSessions.length === 0) {
@@ -362,7 +354,7 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
     targetSessions.forEach(s => {
       // On n'exporte que les participants (on exclut les no-shows si possible, mais ici participantIds contient tout le monde)
       // Normalement on devrait filtrer par présence, mais dans Arrivio Groupe, participantIds = présents
-      (s.participantIds || []).forEach(participantId => {
+      (s.participantIds || []).filter(id => !s.noShowIds?.includes(id)).forEach(participantId => {
         const client = clients.find(c => c.id === participantId);
         if (!client) return;
 
@@ -443,7 +435,9 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
   const handleExportNAARS = async () => {
     // Filtrer : Type ETABLISSEMENT + Categorie INDIVIDUELLE (ou tout autre critère NAARS)
     let targetSessions = filteredSessions.filter(s => 
-      s.type === SessionType.ESTABLISHMENT && s.category === SessionCategory.INDIVIDUAL
+      s.type === SessionType.ESTABLISHMENT && 
+      s.category === SessionCategory.INDIVIDUAL &&
+      s.individualStatus === AttendanceStatus.PRESENT
     );
 
     if (targetSessions.length === 0) {
@@ -644,14 +638,23 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
               </select>
             </div>
           )}
-          <div className="space-y-1">
-             <label className="text-[10px] font-bold text-slds-text-secondary uppercase tracking-widest flex items-center gap-1">
-               <Clock size={12} /> Rapidité
-             </label>
-             <div className="slds-input bg-slds-bg text-[10px] font-bold text-slds-brand flex items-center justify-center text-center h-[32px]">
-               Génération instantanée via Cloud
-             </div>
-          </div>
+          {isAdmin && (
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slds-text-secondary uppercase tracking-widest flex items-center gap-1">
+                <Users size={12} /> Conseiller
+              </label>
+              <select 
+                value={selectedAdvisor}
+                onChange={(e) => setSelectedAdvisor(e.target.value)}
+                className="slds-input"
+              >
+                <option value="ALL">Tous les conseillers</option>
+                {advisorOptions.map(f => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
@@ -754,12 +757,6 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
               className="slds-button slds-button-neutral w-full flex items-center justify-center gap-2"
              >
                <Download size={14} /> Exporter Séances (.csv)
-             </button>
-             <button 
-              onClick={handleExportSEBAAReport}
-              className="slds-button slds-button-neutral w-full flex items-center justify-center gap-2"
-             >
-               <Download size={14} /> Rapport IRCC SÉBAA
              </button>
              <button 
               onClick={handleExportEmploymentReport}

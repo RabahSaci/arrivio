@@ -267,10 +267,15 @@ const SessionModal: React.FC<SessionModalProps> = ({
               setSelectedTargetClientTypes(fullSession.targetClientTypes || []);
               setClientLocationCountry(fullSession.clientLocationCountry || '');
               setProgrammingType(fullSession.programmingType || 'Service standard');
-              if (fullSession.lifeNeedsInd || fullSession.languageNeedsInd || fullSession.employmentNeedsInd || fullSession.lifeAssetInd) {
+              const hasSEBAAData = fullSession.lifeNeedsInd || fullSession.languageNeedsInd || fullSession.employmentNeedsInd || 
+              fullSession.lifeAssetInd || fullSession.languageAssetInd || fullSession.employmentAssetInd ||
+              fullSession.supportReceivedInd || fullSession.supportRequiredInd || fullSession.settlementPlanCreatedInd ||
+              fullSession.languageOfService;
+              
+              if (hasSEBAAData) {
                 setShowNAARS(true);
               }
-              if (fullSession.employmentStatusCanada || fullSession.intendedOccupationCnp || fullSession.employmentTopicCareerPlanningInd) {
+              if (fullSession.employmentStatusCanada || fullSession.intendedOccupationCnp || fullSession.employmentTopicCareerPlanningInd || fullSession.employmentTargetInd) {
                 setShowEmployment(true);
               }
             })
@@ -1219,7 +1224,13 @@ const SessionModal: React.FC<SessionModalProps> = ({
                       <span className="text-[10px] font-bold text-sky-800 uppercase tracking-tight">{showNAARS ? 'Module Actif' : 'Activer SÉBAA ?'}</span>
                       <div
                         className={`relative w-10 h-5 rounded-full transition-colors ${showNAARS ? 'bg-sky-600' : 'bg-slate-300'}`}
-                        onClick={() => setShowNAARS(!showNAARS)}
+                        onClick={() => {
+                          const next = !showNAARS;
+                          setShowNAARS(next);
+                          if (next && !naarsData.lifeNeedsInd) {
+                            setNAARSValue('lifeNeedsInd', true);
+                          }
+                        }}
                       >
                         <div className={`absolute top-1 left-1 w-3 h-3 bg-white rounded-full transition-transform ${showNAARS ? 'translate-x-5' : ''}`} />
                       </div>
