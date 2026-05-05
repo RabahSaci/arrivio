@@ -167,10 +167,14 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
       
       return true;
     }).sort((a, b) => {
-      const dateA = new Date(a.createdAt || 0).getTime();
-      const dateB = new Date(b.createdAt || 0).getTime();
+      const dateA = new Date(a.inboundReferralDate || 0).getTime();
+      const dateB = new Date(b.inboundReferralDate || 0).getTime();
       if (dateB !== dateA) return dateB - dateA;
-      return new Date(b.registrationDate || 0).getTime() - new Date(a.registrationDate || 0).getTime();
+      
+      // Fallback on createdAt if referral dates are identical
+      const createA = new Date(a.createdAt || 0).getTime();
+      const createB = new Date(b.createdAt || 0).getTime();
+      return createB - createA;
     });
   }, [clients, searchTerm, filterStatus, filterCity, filterCountry, filterStartDate, filterEndDate, filterSessionsRange, filterDeadline, activeRole, currentPartnerId, sessionsByClient]);
 
@@ -474,9 +478,9 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">
                 {totalItems} dossiers
               </div>
-              {paginatedClients.length > 0 && (() => {
-                const latestDate = paginatedClients
-                  .map(c => c.registrationDate)
+              {clients.length > 0 && (() => {
+                const latestDate = clients
+                  .map(c => c.inboundReferralDate)
                   .filter((d): d is string => !!d && !isNaN(new Date(d).getTime()))
                   .sort((a, b) => new Date(b!).getTime() - new Date(a!).getTime())[0];
                 
@@ -484,7 +488,7 @@ const ClientList: React.FC<ClientListProps> = ({ clients, sessions, activeRole, 
                   const [y, m, d] = latestDate.split('-');
                   return (
                     <div className="text-[8px] font-bold text-slate-400 uppercase tracking-tight mt-1">
-                      Dernier import : {`${d}/${m}/${y}`}
+                      Dernier référencement CF : {`${d}/${m}/${y}`}
                     </div>
                   );
                 }

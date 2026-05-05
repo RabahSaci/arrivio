@@ -1030,6 +1030,30 @@ app.delete('/api/partners/:id', authenticate_then_authorize([UserRole.ADMIN, Use
 });
 
 
+
+// Specialized route for Clients to handle scalability
+// Fetches only essential fields to avoid massive payloads (80+ columns)
+app.get('/api/clients', async (req, res) => {
+  try {
+    const client = getReadClient('clients', req);
+    // Selection of core fields for lists and reports
+    const fields = [
+      'id', 'first_name', 'last_name', 'email', 'status', 'assigned_partner_id', 
+      'iuc_crp_number', 'origin_country', 'destination_city', 'arrival_date', 
+      'profession', 'created_at', 'referred_by_id', 'is_approved', 'is_profile_completed',
+      'consent_shared', 'consent_external_referral', 'is_unsubscribed'
+    ].join(', ');
+
+    let query = client.from('clients').select(fields).order('last_name', { ascending: true });
+    
+    const data = await fetchAll(query);
+    res.json(data);
+  } catch (err) {
+    console.error(`[GET /api/clients] ERROR:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Generic GET (all tables)
 app.get('/api/:table', async (req, res) => {
   const { table } = req.params;

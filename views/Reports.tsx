@@ -52,6 +52,20 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [allProfiles]);
 
+  // Optimisation : On calcule une seule fois l'ensemble des IDs clients actifs dans la période
+  const activeClientIdsInRange = useMemo(() => {
+    if (!startDate && !endDate) return null;
+    const activeIds = new Set<string>();
+    sessions.forEach(s => {
+      const matchStart = !startDate || s.date >= startDate;
+      const matchEnd = !endDate || s.date <= endDate;
+      if (matchStart && matchEnd && s.participantIds) {
+        s.participantIds.forEach(id => activeIds.add(id));
+      }
+    });
+    return activeIds;
+  }, [sessions, startDate, endDate]);
+
   // Logique de filtrage des clients pour l'export
   const filteredClients = useMemo(() => {
     return clients.filter(c => {
@@ -61,19 +75,14 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
       
       const matchStatus = selectedStatus === 'ALL' || c.status === selectedStatus;
       
-      // Filtre par date d'activité (sessions) au lieu de date d'arrivée
-      if (!startDate && !endDate) return matchPartner && matchStatus;
+      // Si aucun filtre de date n'est actif, on ne filtre que par partenaire et statut
+      if (!activeClientIdsInRange) return matchPartner && matchStatus;
 
-      const clientSessions = sessions.filter(s => s.participantIds?.includes(c.id));
-      const hasActivityInRange = clientSessions.some(s => {
-        const matchStart = !startDate || s.date >= startDate;
-        const matchEnd = !endDate || s.date <= endDate;
-        return matchStart && matchEnd;
-      });
+      const hasActivityInRange = activeClientIdsInRange.has(c.id);
 
       return matchPartner && matchStatus && hasActivityInRange;
     });
-  }, [clients, sessions, selectedPartner, selectedStatus, startDate, endDate, isAdmin, currentPartnerId]);
+  }, [clients, activeClientIdsInRange, selectedPartner, selectedStatus, isAdmin, currentPartnerId]);
 
   // Logique de filtrage des séances pour l'export
   const filteredSessions = useMemo(() => {
@@ -153,21 +162,50 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
   };
 
   const handleExportClients = () => {
-    const exportData = filteredClients.map(c => ({
-      ID: c.id,
-      Prenom: c.firstName,
-      Nom: c.lastName,
-      Email: c.email,
-      PaysOrigine: c.originCountry,
-      PaysIRCC: getIRCCCountry((c as any).irccOriginCountry || c.residenceCountry || c.originCountry),
-      Profession: c.profession,
-      VilleDestination: c.destinationCity,
-      DateArrivee: c.arrivalDate,
-      Statut: c.status,
-      Consentement: c.consentShared ? 'OUI' : 'NON',
-      OrganismeID: c.assignedPartnerId || 'Non assigné',
-      OrganismeNom: partners.find(p => p.id === c.assignedPartnerId)?.name || 'N/A'
-    }));
+    const exportData = filteredClients.map(c => {
+      const directAdvisorId = c.referredById || (c as any).referred_by_id;
+      
+      const clientSessions = sessions
+        .filter(s => s.participantIds?.includes(c.id))
+        .sort((a, b) => b.date.localeCompare(a.date));
+      const lastSession = clientSessions.length > 0 ? clientSessions[0] : null;
+      const lastSessionDate = lastSession ? lastSession.date : 'N/A';
+      
+      // Déterminer l'état de présence à la dernière rencontre
+      let presenceStatus = 'N/A';
+      if (lastSession) {
+        if (lastSession.category === SessionCategory.INDIVIDUAL) {
+          presenceStatus = lastSession.individualStatus || 'PRESENT';
+        } else {
+          // Pour les sessions de groupe, on regarde si l'ID est dans les absents
+          presenceStatus = lastSession.noShowIds?.includes(c.id) ? AttendanceStatus.ABSENT : AttendanceStatus.PRESENT;
+        }
+      }
+      
+      // Fallback sur le conseiller de la séance si le conseiller direct est manquant
+      const advisorId = directAdvisorId || lastSession?.advisorId;
+      const advisor = allProfiles.find(p => p.id?.toLowerCase() === advisorId?.toLowerCase());
+      
+      return {
+        ID: c.id,
+        Prenom: c.firstName,
+        Nom: c.lastName,
+        Email: c.email,
+        PaysOrigine: c.originCountry,
+        PaysIRCC: getIRCCCountry((c as any).irccOriginCountry || c.residenceCountry || c.originCountry),
+        Profession: c.profession,
+        VilleDestination: c.destinationCity,
+        DateArrivee: c.arrivalDate,
+        Statut: c.status,
+        Consentement: c.consentShared ? 'OUI' : 'NON',
+        OrganismeID: c.assignedPartnerId || 'Non assigné',
+        OrganismeNom: partners.find(p => p.id === c.assignedPartnerId)?.name || 'N/A',
+        ConseillerNom: advisor ? `${advisor.firstName} ${advisor.lastName}`.trim() : (lastSession?.advisorName || 'N/A'),
+        ConseillerEmail: advisor?.email || 'N/A',
+        DateDerniereRencontre: lastSessionDate,
+        PresenceDerniereRencontre: presenceStatus
+      };
+    });
     downloadCSV(exportData, 'Arrivio_Export_Clients');
   };
 
@@ -787,25 +825,12 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
       </div>
 
       {/* Footer Info SLDS */}
-      <div className="slds-card p-8 bg-slds-text-primary text-white flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
-        <div className="absolute top-0 right-0 p-12 text-white/5 pointer-events-none">
-          <TableIcon size={120} />
-        </div>
-        <div className="max-w-xl relative z-10 text-center md:text-left">
-           <h4 className="text-lg font-bold tracking-tight mb-2">Conformité IRCC & Confidentialité</h4>
-           <p className="text-slds-border text-xs font-medium leading-relaxed">
+      <div className="slds-card p-8 bg-white border-t border-slds-border flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
+        <div className="max-w-4xl relative z-10 text-center md:text-left">
+           <h4 className="text-lg font-black text-slds-text-primary tracking-tight mb-2 uppercase">Conformité IRCC & Confidentialité</h4>
+           <p className="text-slds-text-primary text-xs font-bold leading-relaxed">
              Les exports générés via Arrivio respectent les normes de protection des données. Assurez-vous que le stockage des fichiers téléchargés sur vos postes de travail est conforme aux politiques de sécurité du Centre Francophone du Grand Toronto.
            </p>
-        </div>
-        <div className="flex gap-4 relative z-10 shrink-0">
-          <div className="px-6 py-4 bg-white/5 border border-white/10 rounded flex flex-col items-center">
-            <CheckCircle2 size={24} className="text-slds-success mb-2" />
-            <p className="text-[9px] font-bold uppercase tracking-tighter text-slds-border">Format Standard</p>
-          </div>
-          <div className="px-6 py-4 bg-white/5 border border-white/10 rounded flex flex-col items-center">
-            <AlertCircle size={24} className="text-slds-brand mb-2" />
-            <p className="text-[9px] font-bold uppercase tracking-tighter text-slds-border">Audit activé</p>
-          </div>
         </div>
       </div>
     </div>
