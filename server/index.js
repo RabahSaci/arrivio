@@ -963,31 +963,38 @@ app.post('/api/contracts', authorize([UserRole.ADMIN, UserRole.MANAGER]), valida
 });
 
 
-// Optimized Helper for fetching ALL records using Parallelism
+
+// Version stable et performante de fetchAll
 async function fetchAll(query) {
-  // 1. Get total count first to plan parallel pages
-  const { count, error: countError } = await query.select('*', { count: 'exact', head: true });
-  if (countError) throw countError;
+  // On récupère la première page ET le compte total en une seule fois
+  // Note: le { count: 'exact' } doit être défini dans le .select() de la route appelante
+  const { data: firstPage, count, error } = await query.range(0, 999);
+  if (error) throw error;
 
-  if (count === 0) return [];
+  if (!firstPage || firstPage.length === 0) return [];
+  
+  // Si tout tient dans la première page, on s'arrête là
+  if (count === null || count <= firstPage.length) {
+    return firstPage;
+  }
 
+  // Sinon, on charge le reste en parallèle
   const PAGE_SIZE = 1000;
   const numPages = Math.ceil(count / PAGE_SIZE);
-  
-  // 2. Launch all page requests in parallel
   const pagePromises = [];
-  for (let i = 0; i < numPages; i++) {
+  
+  // On commence à la page 1 (index 1) car la page 0 est déjà chargée
+  for (let i = 1; i < numPages; i++) {
     const from = i * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
-    // We must clone or rebuild the query for each range
     pagePromises.push(query.range(from, to).then(res => {
       if (res.error) throw res.error;
       return res.data;
     }));
   }
 
-  const pages = await Promise.all(pagePromises);
-  return pages.flat();
+  const otherPages = await Promise.all(pagePromises);
+  return [...firstPage, ...otherPages.flat()];
 }
 
 // Helper to determine if we should use admin client for reading (SELECT)
@@ -1062,7 +1069,7 @@ app.get('/api/clients', async (req, res) => {
       'consent_shared', 'consent_external_referral', 'is_unsubscribed'
     ].join(', ');
 
-    let query = client.from('clients').select(fields).order('last_name', { ascending: true });
+    let query = client.from('clients').select(fields, { count: 'exact' }).order('last_name', { ascending: true });
     
     const data = await fetchAll(query);
     res.json(data);
@@ -1077,7 +1084,7 @@ app.get('/api/:table', async (req, res) => {
   const { table } = req.params;
   try {
     const client = getReadClient(table, req);
-    let query = client.from(table).select('*');
+    let query = client.from(table).select('*', { count: 'exact' });
     
     // Sort logic for specific tables
     if (table === 'sessions') query = query.order('date', { ascending: false });
