@@ -207,6 +207,7 @@ console.info(`Supabase URL: ${process.env.SUPABASE_URL ? process.env.SUPABASE_UR
 console.info(`Service Role Key: ${process.env.SUPABASE_SERVICE_ROLE_KEY ? 'EXISTS (starts with ' + process.env.SUPABASE_SERVICE_ROLE_KEY.substring(0, 10) + '...)' : 'MISSING'}`);
 console.info("------------------------");
 
+
 // Factory: creates a fresh isolated admin client for each DB operation
 // Prevents state corruption from concurrent auth.getUser() calls on the shared client
 function getAdminClient() {
@@ -223,6 +224,11 @@ function getAdminClient() {
   );
 }
 
+// Simple in-memory cache for user profiles to reduce DB load and latency
+// Structure: { userId: { role: string, timestamp: number } }
+const profileCache = {};
+const PROFILE_CACHE_TTL = 60 * 1000; // 1 minute
+
 // Auth Middleware
 const authenticateUser = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -237,7 +243,6 @@ const authenticateUser = async (req, res, next) => {
     if (error || !user) throw new Error('Invalid token');
     
     // 2. Create a user-scoped client that DOES respect RLS
-    // We use the same URL but the user's own token
     const supabaseUser = createClient(
       process.env.SUPABASE_URL,
       process.env.SUPABASE_ANON_KEY,
@@ -250,22 +255,31 @@ const authenticateUser = async (req, res, next) => {
       }
     );
     
-    // 3. Fetch profile for role (using admin client to ensure we get it)
-    const { data: profile, error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
+    // 3. Fetch profile for role (with caching)
+    const now = Date.now();
+    const cached = profileCache[user.id];
     
-    if (profileError || !profile) {
-      console.warn(`Profile not found for user ${user.id}`);
-      user.role = null; 
+    if (cached && (now - cached.timestamp < PROFILE_CACHE_TTL)) {
+      user.role = cached.role;
     } else {
-      user.role = profile.role;
+      const { data: profile, error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+      
+      if (profileError || !profile) {
+        console.warn(`Profile not found for user ${user.id}`);
+        user.role = null; 
+      } else {
+        user.role = profile.role;
+        // Update cache
+        profileCache[user.id] = { role: profile.role, timestamp: now };
+      }
     }
 
     req.user = user;
-    req.sb = supabaseUser; // Attach the scoped client to the request
+    req.sb = supabaseUser; 
     next();
   } catch (err) {
     console.error('Auth error:', err.message);
