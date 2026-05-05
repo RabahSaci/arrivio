@@ -1061,12 +1061,12 @@ app.delete('/api/partners/:id', authenticate_then_authorize([UserRole.ADMIN, Use
 app.get('/api/clients', async (req, res) => {
   try {
     const client = getReadClient('clients', req);
-    // Selection of core fields for lists and reports
     const fields = [
       'id', 'first_name', 'last_name', 'email', 'status', 'assigned_partner_id', 
       'iuc_crp_number', 'origin_country', 'destination_city', 'arrival_date', 
       'profession', 'created_at', 'referred_by_id', 'is_approved', 'is_profile_completed',
-      'consent_shared', 'consent_external_referral', 'is_unsubscribed'
+      'consent_shared', 'consent_external_referral', 'is_unsubscribed',
+      'inbound_referral_date', 'referral_date'
     ].join(', ');
 
     let query = client.from('clients').select(fields, { count: 'exact' }).order('last_name', { ascending: true });
