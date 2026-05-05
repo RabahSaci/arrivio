@@ -962,28 +962,32 @@ app.post('/api/contracts', authorize([UserRole.ADMIN, UserRole.MANAGER]), valida
   }
 });
 
-// Helper for fetching ALL records from a table (bypassing Supabase 1000 limit)
-async function fetchAll(query) {
-  let allData = [];
-  let from = 0;
-  const step = 1000;
-  let hasMore = true;
 
-  while (hasMore) {
-    const { data, error } = await query.range(from, from + step - 1);
-    if (error) throw error;
-    if (!data || data.length === 0) {
-      hasMore = false;
-    } else {
-      allData = [...allData, ...data];
-      if (data.length < step) {
-        hasMore = false;
-      } else {
-        from += step;
-      }
-    }
+// Optimized Helper for fetching ALL records using Parallelism
+async function fetchAll(query) {
+  // 1. Get total count first to plan parallel pages
+  const { count, error: countError } = await query.select('*', { count: 'exact', head: true });
+  if (countError) throw countError;
+
+  if (count === 0) return [];
+
+  const PAGE_SIZE = 1000;
+  const numPages = Math.ceil(count / PAGE_SIZE);
+  
+  // 2. Launch all page requests in parallel
+  const pagePromises = [];
+  for (let i = 0; i < numPages; i++) {
+    const from = i * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    // We must clone or rebuild the query for each range
+    pagePromises.push(query.range(from, to).then(res => {
+      if (res.error) throw res.error;
+      return res.data;
+    }));
   }
-  return allData;
+
+  const pages = await Promise.all(pagePromises);
+  return pages.flat();
 }
 
 // Helper to determine if we should use admin client for reading (SELECT)
