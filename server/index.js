@@ -1079,6 +1079,20 @@ app.get('/api/clients', async (req, res) => {
   }
 });
 
+// Generic GET by ID
+app.get('/api/:table/:id', async (req, res) => {
+  const { table, id } = req.params;
+  try {
+    const client = getReadClient(table, req);
+    const { data, error } = await client.from(table).select('*').eq('id', id).single();
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    console.error(`[GET /api/${table}/${id}] ERROR:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Generic GET (all tables)
 app.get('/api/:table', async (req, res) => {
   const { table } = req.params;

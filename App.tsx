@@ -541,6 +541,25 @@ const App: React.FC = () => {
     }
   };
 
+  const handleSelectClient = async (client: Client | null) => {
+    if (!client) {
+      setSelectedClient(null);
+      return;
+    }
+    
+    // Affichage immédiat (données partielles)
+    setSelectedClient(client);
+    
+    try {
+      // Récupération des données complètes
+      const fullClient = await apiService.getById('clients', client.id);
+      setSelectedClient(fullClient as Client);
+    } catch (err) {
+      console.error("Erreur lors du chargement des détails complets du client:", err);
+    }
+  };
+
+
   const handleAddContract = async (c: Partial<Contract>) => {
     try {
       await apiService.create('contracts', {
@@ -658,7 +677,7 @@ const App: React.FC = () => {
               setActiveTab('sessions');
             } else if (type === 'CLIENT') {
               const found = clients.find(c => c.id === id);
-              if (found) setSelectedClient(found);
+              if (found) handleSelectClient(found);
               setActiveTab('clients');
             } else if (type === 'CONTRACT') {
               setActiveTab('payments');
@@ -673,14 +692,14 @@ const App: React.FC = () => {
           activeRole={activeRole} 
           currentPartnerId={currentPartnerId} 
           currentUserId={currentUserId} 
-          onSelectClient={setSelectedClient} 
+          onSelectClient={handleSelectClient} 
           onAddClient={handleAddClient} 
           onBulkAddClients={handleBulkAddClients} 
           onDeleteClient={handleDeleteClient} 
         />
       );
-      case 'jobmatching': return <JobMatching clients={clients} onSelectClient={setSelectedClient} />;
-      case 'activitymatching': return <ActivityMatching clients={clients} onSelectClient={setSelectedClient} />;
+      case 'jobmatching': return <JobMatching clients={clients} onSelectClient={handleSelectClient} />;
+      case 'activitymatching': return <ActivityMatching clients={clients} onSelectClient={handleSelectClient} />;
       case 'sessions': return (
         <SessionList 
           clients={clients}
@@ -693,7 +712,7 @@ const App: React.FC = () => {
           onAddSession={handleAddSession} 
           onUpdateSession={handleUpdateSession} 
           onDeleteSession={handleDeleteSession} 
-          onSelectClient={setSelectedClient}
+          onSelectClient={handleSelectClient}
           allProfiles={profiles} 
         />
       );
