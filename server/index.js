@@ -1066,7 +1066,8 @@ app.get('/api/clients', async (req, res) => {
       'iuc_crp_number', 'origin_country', 'destination_city', 'arrival_date', 
       'profession', 'created_at', 'referred_by_id', 'is_approved', 'is_profile_completed',
       'consent_shared', 'consent_external_referral', 'is_unsubscribed',
-      'inbound_referral_date', 'referral_date'
+      'inbound_referral_date', 'referral_date',
+      'birth_date', 'ircc_origin_country', 'residence_country', 'postal_code', 'gender'
     ].join(', ');
 
     let query = client.from('clients').select(fields, { count: 'exact' }).order('last_name', { ascending: true });
