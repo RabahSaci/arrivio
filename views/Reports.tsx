@@ -646,10 +646,8 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
         "Le client a-t-il été aiguillé vers la Gestion des cas ?": s.caseManagementReferredId || "",
       };
     });
-
-      });
-      downloadExcel(exportData, 'Arrivio_IRCC_NAARS_Evaluation');
-    } catch (err) {
+    downloadExcel(exportData, 'Arrivio_IRCC_NAARS_Evaluation');
+  } catch (err) {
       console.error("Error exporting NAARS:", err);
     } finally {
       setIsExporting(false);

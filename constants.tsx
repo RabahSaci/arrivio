@@ -219,7 +219,6 @@ export const COUNTRY_MAPPING: Record<string, string> = {
 
   // Algérie (avec corruption d'encodage potentielle)
   "Algérie": "Algérie",
-  "Alg\u00e9rie": "Algérie",
   "Alg?rie": "Algérie",
   "Algeria": "Algérie",
 
@@ -238,7 +237,6 @@ export const COUNTRY_MAPPING: Record<string, string> = {
 
   // Bénin
   "Bénin": "Bénin, République Populaire de",
-  "B\u00e9nin": "Bénin, République Populaire de",
   "B?nin": "Bénin, République Populaire de",
   "Benin": "Bénin, République Populaire de",
 
@@ -258,14 +256,12 @@ export const COUNTRY_MAPPING: Record<string, string> = {
 
   // Égypte
   "Égypte": "Égypte",
-  "\u00c9gypte": "Égypte",
   "?gypte": "Égypte",
   "Egypte": "Égypte",
   "Egypt": "Égypte",
 
   // Émirats arabes unis
   "Émirats arabes unis": "Émirats arabes unis",
-  "\u00c9mirats arabes unis": "Émirats arabes unis",
   "Emirats arabes unis": "Émirats arabes unis",
   "Émirats Arabes Unis": "Émirats arabes unis",
   "Emirats Arabes Unis": "Émirats arabes unis",
@@ -277,7 +273,6 @@ export const COUNTRY_MAPPING: Record<string, string> = {
 
   // Guinée
   "Guinée": "Guinée, République de",
-  "Guin\u00e9e": "Guinée, République de",
   "Guin?e": "Guinée, République de",
   "Guinea": "Guinée, République de",
 
@@ -288,7 +283,6 @@ export const COUNTRY_MAPPING: Record<string, string> = {
 
   // Haïti
   "Haïti": "Haïti",
-  "Ha\u00efti": "Haïti",
   "Ha?ti": "Haïti",
   "Haiti": "Haïti",
 
@@ -323,7 +317,6 @@ export const COUNTRY_MAPPING: Record<string, string> = {
 
   // République démocratique du Congo
   "République démocratique du Congo": "Congo, République Démocratique du",
-  "R\u00e9publique d\u00e9mocratique du Congo": "Congo, République Démocratique du",
   "R?publique d?mocratique du Congo": "Congo, République Démocratique du",
   "RD Congo": "Congo, République Démocratique du",
   "RDC": "Congo, République Démocratique du",
@@ -333,13 +326,11 @@ export const COUNTRY_MAPPING: Record<string, string> = {
 
   // République du Congo (Congo-Brazzaville)
   "République du Congo": "Congo, République Populaire du",
-  "R\u00e9publique du Congo": "Congo, République Populaire du",
   "R?publique du Congo": "Congo, République Populaire du",
   "Congo-Brazzaville": "Congo, République Populaire du",
 
   // République dominicaine
   "République dominicaine": "République Dominicaine",
-  "R\u00e9publique dominicaine": "République Dominicaine",
   "R?publique dominicaine": "République Dominicaine",
   "Dominican Republic": "République Dominicaine",
 
@@ -348,7 +339,6 @@ export const COUNTRY_MAPPING: Record<string, string> = {
 
   // Sénégal
   "Sénégal": "Sénégal",
-  "S\u00e9n\u00e9gal": "Sénégal",
   "S?n?gal": "Sénégal",
   "Senegal": "Sénégal",
 
@@ -368,7 +358,6 @@ export const COUNTRY_MAPPING: Record<string, string> = {
   // ============================================================
   // États-Unis
   "États-Unis": "États-Unis d'Amérique",
-  "\u00c9tats-Unis": "États-Unis d'Amérique",
   "?tats-Unis": "États-Unis d'Amérique",
   "Etats-Unis": "États-Unis d'Amérique",
   "USA": "États-Unis d'Amérique",
