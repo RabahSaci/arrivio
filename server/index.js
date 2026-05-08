@@ -1061,7 +1061,8 @@ app.delete('/api/partners/:id', authenticate_then_authorize([UserRole.ADMIN, Use
 app.get('/api/clients', async (req, res) => {
   try {
     const client = getReadClient('clients', req);
-    const fields = [
+    const isFull = req.query.full === 'true';
+    const fields = isFull ? '*' : [
       'id', 'first_name', 'last_name', 'email', 'status', 'assigned_partner_id', 
       'iuc_crp_number', 'origin_country', 'destination_city', 'arrival_date', 
       'profession', 'created_at', 'referred_by_id', 'is_approved', 'is_profile_completed',

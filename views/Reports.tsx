@@ -31,7 +31,8 @@ interface ReportsProps {
   allProfiles: any[];
 }
 
-const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRole, currentPartnerId, currentUserName, allProfiles }) => {
+const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRole, currentPartnerId, currentUserName, allProfiles = [] }) => {
+  const [isExporting, setIsExporting] = useState(false);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedPartner, setSelectedPartner] = useState('ALL');
@@ -161,53 +162,66 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
     document.body.removeChild(link);
   };
 
-  const handleExportClients = () => {
-    const exportData = filteredClients.map(c => {
-      const directAdvisorId = c.referredById || (c as any).referred_by_id;
+  const handleExportClients = async () => {
+    setIsExporting(true);
+    try {
+      // Fetch full client data for complete export
+      const fullClients = await apiService.fetchTable('clients', { full: 'true' });
       
-      const clientSessions = sessions
-        .filter(s => s.participantIds?.includes(c.id))
-        .sort((a, b) => b.date.localeCompare(a.date));
-      const lastSession = clientSessions.length > 0 ? clientSessions[0] : null;
-      const lastSessionDate = lastSession ? lastSession.date : 'N/A';
-      
-      // Déterminer l'état de présence à la dernière rencontre
-      let presenceStatus = 'N/A';
-      if (lastSession) {
-        if (lastSession.category === SessionCategory.INDIVIDUAL) {
-          presenceStatus = lastSession.individualStatus || 'PRESENT';
-        } else {
-          // Pour les sessions de groupe, on regarde si l'ID est dans les absents
-          presenceStatus = lastSession.noShowIds?.includes(c.id) ? AttendanceStatus.ABSENT : AttendanceStatus.PRESENT;
+      const exportData = filteredClients.map(c => {
+        // Use full client data if available
+        const fullClient = fullClients.find((fc: any) => fc.id === c.id) || c;
+        const directAdvisorId = fullClient.referredById || (fullClient as any).referred_by_id;
+
+        const clientSessions = sessions
+          .filter(s => s.participantIds?.includes(c.id))
+          .sort((a, b) => b.date.localeCompare(a.date));
+        const lastSession = clientSessions.length > 0 ? clientSessions[0] : null;
+        const lastSessionDate = lastSession ? lastSession.date : 'N/A';
+        
+        // Déterminer l'état de présence à la dernière rencontre
+        let presenceStatus = 'N/A';
+        if (lastSession) {
+          if (lastSession.category === SessionCategory.INDIVIDUAL) {
+            presenceStatus = lastSession.individualStatus || 'PRESENT';
+          } else {
+            // Pour les sessions de groupe, on regarde si l'ID est dans les absents
+            presenceStatus = lastSession.noShowIds?.includes(c.id) ? AttendanceStatus.ABSENT : AttendanceStatus.PRESENT;
+          }
         }
-      }
-      
-      // Fallback sur le conseiller de la séance si le conseiller direct est manquant
-      const advisorId = directAdvisorId || lastSession?.advisorId;
-      const advisor = allProfiles.find(p => p.id?.toLowerCase() === advisorId?.toLowerCase());
-      
-      return {
-        ID: c.id,
-        Prenom: c.firstName,
-        Nom: c.lastName,
-        Email: c.email,
-        PaysOrigine: c.originCountry,
-        PaysIRCC: getIRCCCountry((c as any).irccOriginCountry || c.residenceCountry || c.originCountry),
-        Profession: c.profession,
-        VilleDestination: c.destinationCity,
-        DateArrivee: c.arrivalDate,
-        Statut: c.status,
-        Consentement: c.consentShared ? 'OUI' : 'NON',
-        OrganismeID: c.assignedPartnerId || 'Non assigné',
-        OrganismeNom: partners.find(p => p.id === c.assignedPartnerId)?.name || 'N/A',
-        ConseillerNom: advisor ? `${advisor.firstName} ${advisor.lastName}`.trim() : (lastSession?.advisorName || 'N/A'),
-        ConseillerEmail: advisor?.email || 'N/A',
-        DateDerniereRencontre: lastSessionDate,
-        PresenceDerniereRencontre: presenceStatus
-      };
-    });
-    downloadCSV(exportData, 'Arrivio_Export_Clients');
+        
+        // Fallback sur le conseiller de la séance si le conseiller direct est manquant
+        const advisorId = directAdvisorId || lastSession?.advisorId;
+        const advisor = allProfiles.find(p => p.id?.toLowerCase() === advisorId?.toLowerCase());
+        
+        return {
+          ID: c.id,
+          Prenom: c.firstName,
+          Nom: c.lastName,
+          Email: c.email,
+          PaysOrigine: c.originCountry,
+          PaysIRCC: getIRCCCountry((c as any).irccOriginCountry || c.residenceCountry || c.originCountry),
+          Profession: c.profession,
+          VilleDestination: c.destinationCity,
+          DateArrivee: c.arrivalDate,
+          Statut: c.status,
+          Consentement: c.consentShared ? 'OUI' : 'NON',
+          OrganismeID: c.assignedPartnerId || 'Non assigné',
+          OrganismeNom: partners.find(p => p.id === c.assignedPartnerId)?.name || 'N/A',
+          ConseillerNom: advisor ? `${advisor.firstName} ${advisor.lastName}`.trim() : (lastSession?.advisorName || 'N/A'),
+          ConseillerEmail: advisor?.email || 'N/A',
+          DateDerniereRencontre: lastSessionDate,
+          PresenceDerniereRencontre: presenceStatus
+        };
+      });
+      downloadCSV(exportData, 'Arrivio_Export_Clients');
+    } catch (err) {
+      console.error("Error exporting clients:", err);
+    } finally {
+      setIsExporting(false);
+    }
   };
+
 
   const handleExportSessions = () => {
     const exportData = filteredSessions.map(s => ({
@@ -229,6 +243,7 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
 
 
   const handleExportEmploymentReport = async () => {
+    setIsExporting(true);
     const targetSessions = filteredSessions.filter(s => 
       s.type === SessionType.EMPLOYMENT && 
       s.category === SessionCategory.INDIVIDUAL &&
@@ -236,6 +251,7 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
     );
     if (targetSessions.length === 0) {
       alert("Aucune séance individuelle du service emploi trouvée pour la période sélectionnée.");
+      setIsExporting(false);
       return;
     }
     try {
@@ -246,15 +262,22 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
         type: SessionType.EMPLOYMENT,
         category: SessionCategory.INDIVIDUAL
       });
+
+      // Also fetch full client data for these participants
+      const fullClients = await apiService.fetchTable('clients', { full: 'true' });
+
       const mapped = targetSessions.map(ts => {
         const full = fullSessions.find((fs: any) => fs.id === ts.id);
         return full || ts;
       });
-      await exportEmployment(mapped, clients);
+      await exportEmployment(mapped, fullClients);
     } catch (err) {
       console.error("Error exporting Employment:", err);
+    } finally {
+      setIsExporting(false);
     }
   };
+
 
   const handleExportEstablishmentIndividual = async () => {
     // Filtrer : Type ETABLISSEMENT + Categorie INDIVIDUELLE
@@ -269,104 +292,103 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
       return;
     }
 
-    // On-demand fetch of full records to get subjects and target groups
+    setIsExporting(true);
     try {
-      const fullSessions = await apiService.fetchTable('sessions', { 
-        full: 'true', 
-        startDate, 
-        endDate,
-        type: SessionType.ESTABLISHMENT,
-        category: SessionCategory.INDIVIDUAL
-      });
-      // Re-filter or update data from full sessions
+      const [fullSessions, fullClients] = await Promise.all([
+        apiService.fetchTable('sessions', { 
+          full: 'true', 
+          startDate, 
+          endDate,
+          type: SessionType.ESTABLISHMENT,
+          category: SessionCategory.INDIVIDUAL
+        }),
+        apiService.fetchTable('clients', { full: 'true' })
+      ]);
+
       targetSessions = targetSessions.map(ts => {
         const full = fullSessions.find((fs: any) => fs.id === ts.id);
         return full || ts;
       });
+
+      const exportData = targetSessions.map(s => {
+        const participantId = s.participantIds?.[0];
+        const client = fullClients.find((c: any) => c.id === participantId) || clients.find(c => c.id === participantId);
+
+        const subjects = s.subjectsCovered || [];
+        const targetGroups = s.targetClientTypes || [];
+        const hasTargetGroup = targetGroups.length > 0 && !targetGroups.every(g => g === "Général - pas de groupe de clients spécifique");
+
+        return {
+          "Détails sur le traitement": "", 
+          "ID du dossier à mettre à jour": "", 
+          "Type Identificateur unique": (client?.iucCrpNumber?.startsWith('1')) 
+            ? "N° d'identité SSOBL ou SMGC du client" 
+            : (client?.iucCrpNumber?.toUpperCase().startsWith('T'))
+            ? "N° de formulaire IMM5292, IMM5509 ou IMM1000"
+            : "#IUC",
+          "Valeur de l'identificateur unique": client?.iucCrpNumber || "",
+          "Date de naissance du client (AAAA-MM-JJ)": client?.birthDate || "",
+          "Courriel du client": client?.email || "",
+          "Langue officielle de préférence": "Français",
+          "Type de programmation/d'initiative": s.programmingType || "Service standard",
+          "Date de début de l'activité (AAAA-MM-JJ)": s.date,
+          "Durée de l'activité (heures)": (s.duration / 60).toFixed(1).replace('.', ','),
+          "Emplacement de l'organisation: Code postal (A#A#A#)": "L5B3C4",
+          "Emplacement de l’organisation : Pays": "",
+          "Emplacement du client: Code postal (A#A#A#)": "",
+          "Emplacement du client : Pays": getIRCCCountry(s.clientLocationCountry || (client as any)?.irccOriginCountry || client?.residenceCountry || client?.originCountry || "Canada"),
+          "Langue du client utilisée pendant l'activité": s.languageUsed || "Français",
+          "Le service a-t-il été fourni dans un cadre de groupe ou individuel/familial ?": s.serviceSetting || "Informations et Orientation Individuelles/Familiales",
+          
+          "Sujet abordé : Informations avant le départ": subjects.includes("Informations avant le départ") ? "Oui" : "",
+          "Sujet abordé : Informations nationales": subjects.includes("Informations nationales") ? "Oui" : "",
+          "Sujet abordé : Informations provinciales/territoriales": subjects.some(sb => sb.includes("Informations provinciales")) ? "Oui" : "",
+          "Sujet abordé : Informations communautaires/municipales": subjects.some(sb => sb.includes("Informations communautaires")) ? "Oui" : "",
+          "Sujet abordé : Emploi": subjects.some(sb => sb.toLowerCase().includes("emploi")) ? "Oui" : "",
+          "Sujet abordé : Santé et bien-être": subjects.includes("Santé et bien-être") ? "Oui" : "",
+          "Sujet abordé : Communautés et opportunités francophones": subjects.includes("Communautés francophones et opportunités") ? "Oui" : "",
+          "Sujet abordé : Équité": subjects.includes("Équité") ? "Oui" : "",
+          "Sujet abordé : Peuples autochtones": subjects.includes("Peuples autochtones") ? "Oui" : "",
+
+          "Format de l'activité : En personne": s.activityFormat === "En personne" ? "Oui" : "",
+          "Format de l'activité : À distance — dirigé par le personnel": (s.activityFormat || "").includes("À distance") ? "Oui" : "",
+          "Format de l'activité : À distance — auto-dirigé": s.activityFormat === "Auto-dirigé" ? "Oui" : "",
+          "Format de l'activité : À distance par courriel/message texte/téléphone": (s.activityFormat || "").toLowerCase().includes("téléphone") || (s.activityFormat || "").toLowerCase().includes("email") ? "Oui" : "",
+
+          "Destiné à une population cible spécifique": hasTargetGroup ? "Oui" : "Non",
+          "Enfants (0-14 ans)": targetGroups.includes("Enfants (0-14 ans)") ? "Oui" : "",
+          "Clients formés à l'étranger dans une profession ou métier réglementé": targetGroups.includes("Clients formés à l'étranger dans une profession ou métier réglementé") ? "Oui" : "",
+          "Familles/parents/soignants": targetGroups.includes("Familles/parents/soignants") ? "Oui" : "",
+          "Minorités de langue officielle (Francophones)": targetGroups.includes("Minorités de langue officielle (Francophones)") ? "Oui" : "",
+          "Personnes handicapées": targetGroups.includes("Personnes handicapées") ? "Oui" : "",
+          "Nouveaux arrivants racisés": targetGroups.includes("Nouveaux arrivants racisés") ? "Oui" : "",
+          "Réfugiés": targetGroups.includes("Réfugiés") ? "Oui" : "",
+          "Personnes âgées (65+)": targetGroups.includes("Personnes âgées (65+)") ? "Oui" : "",
+          "Femmes": targetGroups.includes("Femmes") ? "Oui" : "",
+          "Jeunes (15-30 ans)": targetGroups.includes("Jeunes (15-30 ans)") ? "Oui" : "",
+          "2ELGBTQI+": targetGroups.includes("2ELGBTQI+ (Bispirituel; Lesbienne; Gai; Bisexuel; Transgenre; Queer; Intersexuel et autres)") ? "Oui" : "",
+
+          "Services de soutien reçus": s.supportReceivedInd ? "Oui" : "Non",
+          "Garde d'enfants": s.childmindingReceivedInd ? "Oui" : "",
+          "Équipement de soutien numérique": s.digitalEquipmentReceivedInd ? "Oui" : "",
+          "Compétences en matière de soutien numérique": s.digitalSkillReceivedInd ? "Oui" : "",
+          "Interprétation orale": s.interpretationReceivedInd ? "Oui" : "",
+          "Dispositions en raison d’un handicap": s.disabilitySupportReceivedInd ? "Oui" : "",
+          "Counseils à court terme": s.counsellingReceivedInd ? "Oui" : "",
+          "Transport": s.transportationReceivedInd ? "Oui" : "",
+          "Traduction écrite": s.translationReceivedInd ? "Oui" : ""
+        };
+      });
+
+      downloadExcel(exportData, 'Arrivio_IRCC_Etablissement_Individuel');
     } catch (err) {
-      console.error("Error fetching full sessions for Establishment export:", err);
+      console.error("Error:", err);
+    } finally {
+      setIsExporting(false);
     }
-
-    const exportData = targetSessions.map(s => {
-      const participantId = s.participantIds?.[0];
-      const client = clients.find(c => c.id === participantId);
-      
-      const subjects = s.subjectsCovered || [];
-      const targetGroups = s.targetClientTypes || [];
-      const hasTargetGroup = targetGroups.length > 0 && !targetGroups.every(g => g === "Général - pas de groupe de clients spécifique");
-
-      // Construction des 50 colonnes selon le gabarit iEDEC
-      return {
-        "Détails sur le traitement": "", 
-        "ID du dossier à mettre à jour": "", 
-        "Type Identificateur unique": (client?.iucCrpNumber?.startsWith('1')) 
-          ? "N° d'identité SSOBL ou SMGC du client" 
-          : (client?.iucCrpNumber?.toUpperCase().startsWith('T'))
-          ? "N° de formulaire IMM5292, IMM5509 ou IMM1000"
-          : "#IUC",
-        "Valeur de l'identificateur unique": client?.iucCrpNumber || "",
-        "Date de naissance du client (AAAA-MM-JJ)": client?.birthDate || "",
-        "Courriel du client": client?.email || "",
-        "Langue officielle de préférence": "Français",
-        "Type de programmation/d'initiative": s.programmingType || "Service standard",
-        "Date de début de l'activité (AAAA-MM-JJ)": s.date,
-        "Durée de l'activité (heures)": (s.duration / 60).toFixed(1).replace('.', ','),
-        "Emplacement de l'organisation: Code postal (A#A#A#)": "L5B3C4",
-        "Emplacement de l’organisation : Pays": "",
-        "Emplacement du client: Code postal (A#A#A#)": "",
-        "Emplacement du client : Pays": getIRCCCountry(s.clientLocationCountry || (client as any)?.irccOriginCountry || client?.residenceCountry || client?.originCountry || "Canada"),
-        "Langue du client utilisée pendant l'activité": s.languageUsed || "Français",
-        "Le service a-t-il été fourni dans un cadre de groupe ou individuel/familial ?": s.serviceSetting || "Informations et Orientation Individuelles/Familiales",
-        
-        // Sujets abordés (Binary Cols 17-25)
-        "Sujet abordé : Informations avant le départ": subjects.includes("Informations avant le départ") ? "Oui" : "",
-        "Sujet abordé : Informations nationales": subjects.includes("Informations nationales") ? "Oui" : "",
-        "Sujet abordé : Informations provinciales/territoriales": subjects.some(sb => sb.includes("Informations provinciales")) ? "Oui" : "",
-        "Sujet abordé : Informations communautaires/municipales": subjects.some(sb => sb.includes("Informations communautaires")) ? "Oui" : "",
-        "Sujet abordé : Emploi": subjects.some(sb => sb.toLowerCase().includes("emploi")) ? "Oui" : "",
-        "Sujet abordé : Santé et bien-être": subjects.includes("Santé et bien-être") ? "Oui" : "",
-        "Sujet abordé : Communautés et opportunités francophones": subjects.includes("Communautés francophones et opportunités") ? "Oui" : "",
-        "Sujet abordé : Équité": subjects.includes("Équité") ? "Oui" : "",
-        "Sujet abordé : Peuples autochtones": subjects.includes("Peuples autochtones") ? "Oui" : "",
-
-        // Formats (Binary Cols 26-29)
-        "Format de l'activité : En personne": s.activityFormat === "En personne" ? "Oui" : "",
-        "Format de l'activité : À distance — dirigé par le personnel": (s.activityFormat || "").includes("À distance") ? "Oui" : "",
-        "Format de l'activité : À distance — auto-dirigé": s.activityFormat === "Auto-dirigé" ? "Oui" : "",
-        "Format de l'activité : À distance par courriel/message texte/téléphone": (s.activityFormat || "").toLowerCase().includes("téléphone") || (s.activityFormat || "").toLowerCase().includes("email") ? "Oui" : "",
-
-        // Groupes cibles (Binary Cols 30-41)
-        "Destiné à une population cible spécifique": hasTargetGroup ? "Oui" : "Non",
-        "Enfants (0-14 ans)": targetGroups.includes("Enfants (0-14 ans)") ? "Oui" : "",
-        "Clients formés à l'étranger dans une profession ou métier réglementé": targetGroups.includes("Clients formés à l'étranger dans une profession ou métier réglementé") ? "Oui" : "",
-        "Familles/parents/soignants": targetGroups.includes("Familles/parents/soignants") ? "Oui" : "",
-        "Minorités de langue officielle (Francophones)": targetGroups.includes("Minorités de langue officielle (Francophones)") ? "Oui" : "",
-        "Personnes handicapées": targetGroups.includes("Personnes handicapées") ? "Oui" : "",
-        "Nouveaux arrivants racisés": targetGroups.includes("Nouveaux arrivants racisés") ? "Oui" : "",
-        "Réfugiés": targetGroups.includes("Réfugiés") ? "Oui" : "",
-        "Personnes âgées (65+)": targetGroups.includes("Personnes âgées (65+)") ? "Oui" : "",
-        "Femmes": targetGroups.includes("Femmes") ? "Oui" : "",
-        "Jeunes (15-30 ans)": targetGroups.includes("Jeunes (15-30 ans)") ? "Oui" : "",
-        "2ELGBTQI+": targetGroups.includes("2ELGBTQI+ (Bispirituel; Lesbienne; Gai; Bisexuel; Transgenre; Queer; Intersexuel et autres)") ? "Oui" : "",
-
-        // Soutien (Binary Cols 42-50)
-        "Services de soutien reçus": s.supportReceivedInd ? "Oui" : "Non",
-        "Garde d'enfants": s.childmindingReceivedInd ? "Oui" : "",
-        "Équipement de soutien numérique": s.digitalEquipmentReceivedInd ? "Oui" : "",
-        "Compétences en matière de soutien numérique": s.digitalSkillReceivedInd ? "Oui" : "",
-        "Interprétation orale": s.interpretationReceivedInd ? "Oui" : "",
-        "Dispositions en raison d’un handicap": s.disabilitySupportReceivedInd ? "Oui" : "",
-        "Counseils à court terme": s.counsellingReceivedInd ? "Oui" : "",
-        "Transport": s.transportationReceivedInd ? "Oui" : "",
-        "Traduction écrite": s.translationReceivedInd ? "Oui" : ""
-      };
-    });
-
-    downloadExcel(exportData, 'Arrivio_IRCC_Etablissement_Individuel');
   };
 
   const handleExportEstablishmentGroup = async () => {
-    // Filtrer : Type ETABLISSEMENT + Categorie GROUPE
     let targetSessions = filteredSessions.filter(s => 
       s.type === SessionType.ESTABLISHMENT && s.category === SessionCategory.GROUP
     );
@@ -376,24 +398,23 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
       return;
     }
 
+    setIsExporting(true);
     try {
-      const fullSessions = await apiService.fetchTable('sessions', { full: 'true', startDate, endDate });
+      const [fullSessions, fullClients] = await Promise.all([
+        apiService.fetchTable('sessions', { full: 'true', startDate, endDate }),
+        apiService.fetchTable('clients', { full: 'true' })
+      ]);
       targetSessions = targetSessions.map(ts => {
         const full = fullSessions.find((fs: any) => fs.id === ts.id);
         return full || ts;
       });
-    } catch (err) {
-      console.error("Error fetching full sessions for Group Establishment export:", err);
-    }
 
-    // Pour chaque session de groupe, on crée une ligne par participant présent
-    const exportData: any[] = [];
+      const exportData: any[] = [];
+      targetSessions.forEach(s => {
+        (s.participantIds || []).filter(id => !s.noShowIds?.includes(id)).forEach(participantId => {
+          const client = fullClients.find((c: any) => c.id === participantId) || clients.find(c => c.id === participantId);
+          if (!client) return;
 
-    targetSessions.forEach(s => {
-      // On n'exporte que les participants (on exclut les no-shows si possible, mais ici participantIds contient tout le monde)
-      // Normalement on devrait filtrer par présence, mais dans Arrivio Groupe, participantIds = présents
-      (s.participantIds || []).filter(id => !s.noShowIds?.includes(id)).forEach(participantId => {
-        const client = clients.find(c => c.id === participantId);
         if (!client) return;
 
         const subjects = s.subjectsCovered || [];
@@ -464,11 +485,16 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
           "Transport": s.transportationReceivedInd ? "Oui" : "",
           "Traduction écrite": s.translationReceivedInd ? "Oui" : ""
         });
+        });
       });
-    });
-
-    downloadExcel(exportData, 'Arrivio_IRCC_Etablissement_Groupe');
+      downloadExcel(exportData, 'Arrivio_IRCC_Etablissement_Groupe');
+    } catch (err) {
+      console.error("Error exporting Establishment Group:", err);
+    } finally {
+      setIsExporting(false);
+    }
   };
+
 
   const handleExportNAARS = async () => {
     // Filtrer : Type ETABLISSEMENT + Categorie INDIVIDUELLE (ou tout autre critère NAARS)
@@ -483,19 +509,19 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
       return;
     }
 
-    // On-demand fetch of full records for these specific sessions to get NAARS indicators
+    setIsExporting(true);
     try {
-      const fullSessions = await apiService.fetchTable('sessions', { full: 'true', startDate, endDate });
+      const [fullSessions, fullClients] = await Promise.all([
+        apiService.fetchTable('sessions', { full: 'true', startDate, endDate }),
+        apiService.fetchTable('clients', { full: 'true' })
+      ]);
       // Match back to our filtered set if secondary filters were applied
       targetSessions = fullSessions.filter((fs: any) => targetSessions.some(ts => ts.id === fs.id));
-    } catch (err) {
-      console.error("Error fetching full sessions for export:", err);
-      // Fallback to current (likely compact) sessions
-    }
 
-    const exportData = targetSessions.map(s => {
-      const participantId = s.participantIds?.[0];
-      const client = clients.find(c => c.id === participantId);
+      const exportData = targetSessions.map(s => {
+        const participantId = s.participantIds?.[0];
+        const client = fullClients.find((c: any) => c.id === participantId) || clients.find(c => c.id === participantId);
+
 
       // Cartographie complète des 118 colonnes selon le gabarit iEDEC NAARS
       return {
@@ -621,11 +647,32 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
       };
     });
 
-    downloadExcel(exportData, 'Arrivio_IRCC_NAARS_Evaluation');
+      });
+      downloadExcel(exportData, 'Arrivio_IRCC_NAARS_Evaluation');
+    } catch (err) {
+      console.error("Error exporting NAARS:", err);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className="space-y-8 animate-in fade-in duration-500 relative">
+      {isExporting && (
+        <div className="fixed inset-0 z-[9999] bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-300">
+          <div className="relative mb-6">
+            <div className="absolute inset-0 bg-slds-brand/20 blur-xl rounded-full animate-pulse"></div>
+            <Loader2 size={48} className="text-slds-brand animate-spin relative" />
+          </div>
+          <h2 className="text-xl font-black text-slate-900 uppercase tracking-tighter mb-2">Génération du rapport</h2>
+          <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">Récupération des données complètes en cours...</p>
+          <div className="mt-8 w-48 h-1 bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-full bg-slds-brand animate-progress"></div>
+          </div>
+        </div>
+      )}
+
       {/* Header et Filtres Globaux SLDS */}
       <div className="slds-card p-6 space-y-6">
         <div className="flex items-center gap-4">
@@ -639,6 +686,7 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4 border-t border-slds-border">
+
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-slds-text-secondary uppercase tracking-widest flex items-center gap-1">
               <Calendar size={12} /> Date de début
@@ -741,7 +789,8 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
           <div className="p-4 bg-slds-bg border-t border-slds-border mt-auto">
              <button 
               onClick={handleExportClients}
-              className="slds-button slds-button-brand w-full flex items-center justify-center gap-2"
+              disabled={isExporting}
+              className={`slds-button slds-button-brand w-full flex items-center justify-center gap-2 ${isExporting ? 'opacity-50 cursor-not-allowed' : ''}`}
              >
                <Download size={14} /> Exporter Clients (.csv)
              </button>
@@ -792,31 +841,36 @@ const Reports: React.FC<ReportsProps> = ({ clients, sessions, partners, activeRo
           <div className="p-4 bg-slds-bg border-t border-slds-border mt-auto space-y-2">
              <button 
               onClick={handleExportSessions}
-              className="slds-button slds-button-neutral w-full flex items-center justify-center gap-2"
+              disabled={isExporting}
+              className={`slds-button slds-button-neutral w-full flex items-center justify-center gap-2 ${isExporting ? 'opacity-50 cursor-not-allowed' : ''}`}
              >
                <Download size={14} /> Exporter Séances (.csv)
              </button>
              <button 
               onClick={handleExportEmploymentReport}
-              className="slds-button slds-button-neutral w-full flex items-center justify-center gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+              disabled={isExporting}
+              className={`slds-button slds-button-neutral w-full flex items-center justify-center gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50 ${isExporting ? 'opacity-50 cursor-not-allowed' : ''}`}
              >
                <Briefcase size={14} /> Rapport IRCC Emploi (SLE)
              </button>
               <button 
                onClick={handleExportEstablishmentIndividual}
-               className="slds-button slds-button-neutral w-full flex items-center justify-center gap-2"
+               disabled={isExporting}
+               className={`slds-button slds-button-neutral w-full flex items-center justify-center gap-2 ${isExporting ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <TableIcon size={14} /> IRCC Établissement (Individuel)
               </button>
               <button 
                onClick={handleExportEstablishmentGroup}
-               className="slds-button slds-button-neutral w-full flex items-center justify-center gap-2"
+               disabled={isExporting}
+               className={`slds-button slds-button-neutral w-full flex items-center justify-center gap-2 ${isExporting ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <Users size={14} /> IRCC Établissement (Groupe)
               </button>
              <button 
               onClick={handleExportNAARS}
-              className="slds-button slds-button-brand w-full flex items-center justify-center gap-2"
+              disabled={isExporting}
+              className={`slds-button slds-button-brand w-full flex items-center justify-center gap-2 ${isExporting ? 'opacity-50 cursor-not-allowed' : ''}`}
              >
                <Download size={14} /> Rapport IRCC Évaluation (NAARS)
              </button>
